@@ -2,6 +2,32 @@
 
 import { useState, useEffect, useCallback } from "react";
 
+// ─── TYPES ───────────────────────────────────────────────────────────────────
+
+interface VARFitScore {
+  overallScore: number;
+  fitCategory: "strong" | "moderate" | "weak" | "avoid";
+  fitReasons: string[];
+  redFlags: string[];
+  deploymentEase: "easy" | "moderate" | "complex";
+  estimatedDealSize: "small" | "mid" | "enterprise";
+  strategicNotes: string;
+}
+
+interface PitchContext {
+  hookAngle: string;
+  painPoints: string[];
+  integrationAngle: string | null;
+  toneRecommendation: "formal" | "casual" | "technical" | "executive";
+  avoidMentioning: string[];
+}
+
+interface PitchVariants {
+  cold_email: string;
+  linkedin_message: string;
+  followup_email: string;
+}
+
 interface Report {
   id: string;
   timestamp: string;
@@ -15,18 +41,54 @@ interface Report {
   pitch: string;
   newsTitle: string;
   newsSource: string;
+  pitchVariants?: PitchVariants;
+  relevanceScore?: number;
+  confidenceScore?: number;
+  varFitScore?: VARFitScore;
+  pitchContext?: PitchContext;
+  briefing?: string;
 }
 
 type RunStatus = "idle" | "running" | "done" | "error";
 
-const STAGE_LABELS = ["🔭 Watchtower scanning...", "🕵️ Detective profiling...", "📋 Reporter generating pitches...", "📨 Delivering to Teams..."];
+// ─── FIT CATEGORY COLORS ─────────────────────────────────────────────────────
+
+const FIT_COLORS: Record<string, string> = {
+  strong: "#00ff88",
+  moderate: "#ffaa00",
+  weak: "#ff8800",
+  avoid: "#ff4444",
+};
+
+function fitColor(category: string | undefined): string {
+  return category ? (FIT_COLORS[category] ?? "#6b6b85") : "#6b6b85";
+}
+
+// ─── STAGE LABELS ────────────────────────────────────────────────────────────
+
+const STAGE_LABELS = [
+  "🔭 Watchtower scanning for leads...",
+  "⚡ Context agent pre-scoring leads...",
+  "🕵️ Detective profiling companies...",
+  "💼 Salesman generating pitches...",
+  "📨 Delivering reports to Teams...",
+];
+
+// ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
 export default function Dashboard() {
   const [reports, setReports] = useState<Report[]>([]);
   const [selected, setSelected] = useState<Report | null>(null);
   const [status, setStatus] = useState<RunStatus>("idle");
   const [stageIdx, setStageIdx] = useState(0);
-  const [runResult, setRunResult] = useState<{ processed: number; skipped: number; errors: number } | null>(null);
+  const [runResult, setRunResult] = useState<{
+    processed: number;
+    skipped: number;
+    contextFiltered: number;
+    errors: number;
+    totalLeadsFound?: number;
+    avgRelevanceScore?: number;
+  } | null>(null);
   const [lastRun, setLastRun] = useState<string | null>(null);
 
   const fetchReports = useCallback(async () => {
@@ -35,17 +97,18 @@ export default function Dashboard() {
     if (data.reports) setReports(data.reports);
   }, []);
 
-  useEffect(() => { fetchReports(); }, [fetchReports]);
+  useEffect(() => {
+    fetchReports();
+  }, [fetchReports]);
 
   const runPipeline = async (dryRun = false) => {
     setStatus("running");
     setRunResult(null);
     setStageIdx(0);
 
-    // Animate stages
     const interval = setInterval(() => {
       setStageIdx((i) => Math.min(i + 1, STAGE_LABELS.length - 1));
-    }, 8000);
+    }, 7000);
 
     try {
       const res = await fetch("/api/run", {
@@ -58,11 +121,18 @@ export default function Dashboard() {
 
       if (data.error) throw new Error(data.error);
 
-      setRunResult({ processed: data.processed, skipped: data.skipped, errors: data.errors });
+      setRunResult({
+        processed: data.processed,
+        skipped: data.skipped,
+        contextFiltered: data.contextFiltered ?? 0,
+        errors: data.errors,
+        totalLeadsFound: data.totalLeadsFound,
+        avgRelevanceScore: data.avgRelevanceScore,
+      });
       setStatus("done");
       setLastRun(new Date().toLocaleString());
       await fetchReports();
-    } catch (e: any) {
+    } catch {
       clearInterval(interval);
       setStatus("error");
     }
@@ -71,36 +141,60 @@ export default function Dashboard() {
   return (
     <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh" }}>
       {/* Header */}
-      <header style={{
-        borderBottom: "1px solid var(--border)",
-        padding: "20px 32px",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "space-between",
-        background: "var(--surface)",
-        position: "sticky",
-        top: 0,
-        zIndex: 10,
-      }}>
+      <header
+        style={{
+          borderBottom: "1px solid var(--border)",
+          padding: "20px 32px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          background: "var(--surface)",
+          position: "sticky",
+          top: 0,
+          zIndex: 10,
+        }}
+      >
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div style={{
-            width: 40, height: 40, background: "var(--accent)", borderRadius: 8,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 20,
-          }}>📦</div>
+          <div
+            style={{
+              width: 40,
+              height: 40,
+              background: "var(--accent)",
+              borderRadius: 8,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              fontSize: 20,
+            }}
+          >
+            📦
+          </div>
           <div>
-            <div style={{ fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 18, letterSpacing: "-0.5px" }}>
+            <div
+              style={{
+                fontFamily: "'Space Mono', monospace",
+                fontWeight: 700,
+                fontSize: 18,
+                letterSpacing: "-0.5px",
+              }}
+            >
               CLOUDBOX <span style={{ color: "var(--accent)" }}>VAR HUNTER</span>
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-              Automated partner prospecting pipeline
+              Multi-agent partner prospecting pipeline
             </div>
           </div>
         </div>
 
         <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
           {lastRun && (
-            <span style={{ fontSize: 12, color: "var(--muted)", fontFamily: "'Space Mono', monospace" }}>
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--muted)",
+                fontFamily: "'Space Mono', monospace",
+              }}
+            >
               Last run: {lastRun}
             </span>
           )}
@@ -108,9 +202,14 @@ export default function Dashboard() {
             onClick={() => runPipeline(true)}
             disabled={status === "running"}
             style={{
-              padding: "8px 16px", border: "1px solid var(--border)", borderRadius: 6,
-              background: "transparent", color: "var(--muted)", cursor: "pointer",
-              fontFamily: "'Space Mono', monospace", fontSize: 12,
+              padding: "8px 16px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "transparent",
+              color: "var(--muted)",
+              cursor: "pointer",
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 12,
             }}
           >
             DRY RUN
@@ -119,10 +218,15 @@ export default function Dashboard() {
             onClick={() => runPipeline(false)}
             disabled={status === "running"}
             style={{
-              padding: "10px 24px", border: "none", borderRadius: 6,
+              padding: "10px 24px",
+              border: "none",
+              borderRadius: 6,
               background: status === "running" ? "var(--border)" : "var(--accent)",
-              color: "#000", cursor: status === "running" ? "not-allowed" : "pointer",
-              fontFamily: "'Space Mono', monospace", fontSize: 13, fontWeight: 700,
+              color: "#000",
+              cursor: status === "running" ? "not-allowed" : "pointer",
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 13,
+              fontWeight: 700,
               transition: "all 0.2s",
             }}
           >
@@ -133,17 +237,32 @@ export default function Dashboard() {
 
       {/* Status bar */}
       {status === "running" && (
-        <div style={{
-          padding: "14px 32px",
-          background: "rgba(0,255,136,0.05)",
-          borderBottom: "1px solid rgba(0,255,136,0.2)",
-          display: "flex", alignItems: "center", gap: 12,
-        }}>
-          <div style={{
-            width: 8, height: 8, borderRadius: "50%", background: "var(--accent)",
-            animation: "pulse 1s infinite",
-          }} />
-          <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 13, color: "var(--accent)" }}>
+        <div
+          style={{
+            padding: "14px 32px",
+            background: "rgba(0,255,136,0.05)",
+            borderBottom: "1px solid rgba(0,255,136,0.2)",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: "50%",
+              background: "var(--accent)",
+              animation: "pulse 1s infinite",
+            }}
+          />
+          <span
+            style={{
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 13,
+              color: "var(--accent)",
+            }}
+          >
             {STAGE_LABELS[stageIdx]}
           </span>
           <span style={{ fontSize: 12, color: "var(--muted)" }}>
@@ -153,24 +272,59 @@ export default function Dashboard() {
       )}
 
       {status === "done" && runResult && (
-        <div style={{
-          padding: "12px 32px",
-          background: "rgba(0,255,136,0.05)",
-          borderBottom: "1px solid rgba(0,255,136,0.15)",
-          display: "flex", gap: 24,
-        }}>
+        <div
+          style={{
+            padding: "12px 32px",
+            background: "rgba(0,255,136,0.05)",
+            borderBottom: "1px solid rgba(0,255,136,0.15)",
+            display: "flex",
+            gap: 24,
+            flexWrap: "wrap",
+            alignItems: "center",
+          }}
+        >
           <Stat label="Reports Generated" value={runResult.processed} color="var(--accent)" />
-          <Stat label="Already Seen (Skipped)" value={runResult.skipped} color="var(--muted)" />
-          <Stat label="Errors" value={runResult.errors} color={runResult.errors > 0 ? "var(--danger)" : "var(--muted)"} />
+          <Stat label="Skipped" value={runResult.skipped} color="var(--muted)" />
+          {runResult.contextFiltered > 0 && (
+            <Stat label="Context Filtered" value={runResult.contextFiltered} color="var(--warning)" />
+          )}
+          <Stat
+            label="Errors"
+            value={runResult.errors}
+            color={runResult.errors > 0 ? "var(--danger)" : "var(--muted)"}
+          />
+          {runResult.totalLeadsFound !== undefined && (
+            <Stat label="Leads Found" value={runResult.totalLeadsFound} color="var(--warning)" />
+          )}
+          {!!runResult.avgRelevanceScore && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <span
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 20,
+                  fontWeight: 700,
+                  color: "var(--warning)",
+                }}
+              >
+                {runResult.avgRelevanceScore}
+              </span>
+              <span style={{ fontSize: 12, color: "var(--muted)" }}>Avg Relevance</span>
+            </div>
+          )}
         </div>
       )}
 
       {status === "error" && (
-        <div style={{
-          padding: "12px 32px", background: "rgba(255,68,68,0.05)",
-          borderBottom: "1px solid rgba(255,68,68,0.2)",
-          color: "var(--danger)", fontFamily: "'Space Mono', monospace", fontSize: 13,
-        }}>
+        <div
+          style={{
+            padding: "12px 32px",
+            background: "rgba(255,68,68,0.05)",
+            borderBottom: "1px solid rgba(255,68,68,0.2)",
+            color: "var(--danger)",
+            fontFamily: "'Space Mono', monospace",
+            fontSize: 13,
+          }}
+        >
           ⚠ Pipeline error — check that all environment variables are set correctly.
         </div>
       )}
@@ -178,25 +332,43 @@ export default function Dashboard() {
       {/* Main content */}
       <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
         {/* Report list */}
-        <div style={{
-          width: 380, borderRight: "1px solid var(--border)",
-          overflowY: "auto", flexShrink: 0,
-        }}>
-          <div style={{
-            padding: "16px 20px 12px",
-            borderBottom: "1px solid var(--border)",
-            display: "flex", justifyContent: "space-between", alignItems: "center",
-          }}>
-            <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 12, color: "var(--muted)" }}>
+        <div
+          style={{
+            width: 380,
+            borderRight: "1px solid var(--border)",
+            overflowY: "auto",
+            flexShrink: 0,
+          }}
+        >
+          <div
+            style={{
+              padding: "16px 20px 12px",
+              borderBottom: "1px solid var(--border)",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+            }}
+          >
+            <span
+              style={{
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 12,
+                color: "var(--muted)",
+              }}
+            >
               VAR PROFILES — {reports.length} total
             </span>
           </div>
 
           {reports.length === 0 ? (
-            <div style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}>
+            <div
+              style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}
+            >
               <div style={{ fontSize: 40, marginBottom: 12 }}>🎯</div>
               <div style={{ fontSize: 14, marginBottom: 8 }}>No reports yet</div>
-              <div style={{ fontSize: 12 }}>Click "Run Now" to start the pipeline</div>
+              <div style={{ fontSize: 12 }}>
+                Click &quot;Run Now&quot; to start the pipeline
+              </div>
             </div>
           ) : (
             reports.map((r) => (
@@ -212,11 +384,7 @@ export default function Dashboard() {
 
         {/* Detail panel */}
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {selected ? (
-            <ReportDetail report={selected} />
-          ) : (
-            <EmptyState />
-          )}
+          {selected ? <ReportDetail report={selected} /> : <EmptyState />}
         </div>
       </div>
 
@@ -230,17 +398,69 @@ export default function Dashboard() {
   );
 }
 
+// ─── COMPONENTS ──────────────────────────────────────────────────────────────
+
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-      <span style={{ fontFamily: "'Space Mono', monospace", fontSize: 20, fontWeight: 700, color }}>{value}</span>
+      <span
+        style={{
+          fontFamily: "'Space Mono', monospace",
+          fontSize: 20,
+          fontWeight: 700,
+          color,
+        }}
+      >
+        {value}
+      </span>
       <span style={{ fontSize: 12, color: "var(--muted)" }}>{label}</span>
     </div>
   );
 }
 
-function ReportCard({ report, isSelected, onClick }: { report: Report; isSelected: boolean; onClick: () => void }) {
-  const date = new Date(report.timestamp).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+function MiniTag({
+  value,
+  color,
+  bgAlpha,
+}: {
+  value: string;
+  color: string;
+  bgAlpha: string;
+}) {
+  return (
+    <span
+      style={{
+        fontSize: 10,
+        fontFamily: "'Space Mono', monospace",
+        background: bgAlpha,
+        border: `1px solid ${color}33`,
+        borderRadius: 4,
+        padding: "1px 5px",
+        color,
+        whiteSpace: "nowrap",
+      }}
+    >
+      {value}
+    </span>
+  );
+}
+
+function ReportCard({
+  report,
+  isSelected,
+  onClick,
+}: {
+  report: Report;
+  isSelected: boolean;
+  onClick: () => void;
+}) {
+  const date = new Date(report.timestamp).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+  });
+  const fc = report.varFitScore?.fitCategory;
+  const fcolor = fitColor(fc);
+
   return (
     <div
       onClick={onClick}
@@ -253,60 +473,384 @@ function ReportCard({ report, isSelected, onClick }: { report: Report; isSelecte
         transition: "all 0.15s",
       }}
     >
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 6 }}>
-        <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3 }}>{report.companyName}</div>
-        <div style={{ fontSize: 11, color: "var(--muted)", fontFamily: "'Space Mono', monospace", flexShrink: 0, marginLeft: 8 }}>{date}</div>
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 6,
+        }}
+      >
+        <div style={{ fontWeight: 700, fontSize: 14, lineHeight: 1.3, flex: 1 }}>
+          {report.companyName}
+        </div>
+        <div
+          style={{
+            display: "flex",
+            gap: 4,
+            alignItems: "center",
+            flexShrink: 0,
+            marginLeft: 8,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          {fc && (
+            <MiniTag
+              value={fc.toUpperCase().slice(0, 3)}
+              color={fcolor}
+              bgAlpha={`${fcolor}14`}
+            />
+          )}
+          {report.varFitScore?.overallScore !== undefined && (
+            <MiniTag
+              value={`${report.varFitScore.overallScore}`}
+              color={fcolor}
+              bgAlpha={`${fcolor}0d`}
+            />
+          )}
+          {report.relevanceScore !== undefined && (
+            <MiniTag
+              value={`R:${report.relevanceScore}`}
+              color="var(--accent)"
+              bgAlpha="rgba(0,255,136,0.08)"
+            />
+          )}
+          {report.confidenceScore !== undefined && (
+            <MiniTag
+              value={`C:${report.confidenceScore}`}
+              color="var(--accent2)"
+              bgAlpha="rgba(124,58,237,0.08)"
+            />
+          )}
+          <span
+            style={{
+              fontSize: 11,
+              color: "var(--muted)",
+              fontFamily: "'Space Mono', monospace",
+            }}
+          >
+            {date}
+          </span>
+        </div>
       </div>
       <div style={{ fontSize: 12, color: "var(--accent)", marginBottom: 4 }}>
         {report.decisionMaker} · {report.title}
       </div>
-      <div style={{ fontSize: 12, color: "var(--muted)", overflow: "hidden", display: "-webkit-box", WebkitLineClamp: 2, WebkitBoxOrient: "vertical" }}>
+      <div
+        style={{
+          fontSize: 12,
+          color: "var(--muted)",
+          overflow: "hidden",
+          display: "-webkit-box",
+          WebkitLineClamp: 2,
+          WebkitBoxOrient: "vertical",
+        }}
+      >
         {report.newsTitle}
       </div>
     </div>
   );
 }
 
+// ─── REPORT DETAIL ───────────────────────────────────────────────────────────
+
+type PitchTab = "cold_email" | "linkedin_message" | "followup_email";
+
+const PITCH_TABS: { key: PitchTab; label: string }[] = [
+  { key: "cold_email", label: "Cold Email" },
+  { key: "linkedin_message", label: "LinkedIn" },
+  { key: "followup_email", label: "Follow-up" },
+];
+
 function ReportDetail({ report }: { report: Report }) {
   const [copied, setCopied] = useState(false);
+  const [activeTab, setActiveTab] = useState<PitchTab>("cold_email");
+  const reportId = report.id;
+
+  useEffect(() => {
+    setActiveTab("cold_email");
+    setCopied(false);
+  }, [reportId]);
+
+  const activePitch = report.pitchVariants?.[activeTab] ?? report.pitch;
+  const fc = report.varFitScore?.fitCategory;
+  const fcolor = fitColor(fc);
 
   const copyPitch = () => {
-    navigator.clipboard.writeText(report.pitch);
+    navigator.clipboard.writeText(activePitch);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div style={{ padding: "32px 40px", maxWidth: 800 }}>
-      {/* Header */}
-      <div style={{ marginBottom: 32 }}>
-        <div style={{ fontSize: 12, color: "var(--accent)", fontFamily: "'Space Mono', monospace", marginBottom: 8, letterSpacing: "0.1em" }}>
+    <div style={{ padding: "32px 40px", maxWidth: 820 }}>
+
+      {/* ── Executive Briefing Block ─────────────────────────────────────── */}
+      {report.briefing && (
+        <div
+          style={{
+            background: "rgba(124,58,237,0.06)",
+            border: "1px solid rgba(124,58,237,0.25)",
+            borderRadius: 10,
+            padding: "16px 20px",
+            marginBottom: 28,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--accent2)",
+              letterSpacing: "0.1em",
+              marginBottom: 8,
+            }}
+          >
+            ⚡ CONTEXT BRIEFING
+          </div>
+          <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--text)" }}>
+            {report.briefing}
+          </p>
+        </div>
+      )}
+
+      {/* ── Header ──────────────────────────────────────────────────────── */}
+      <div style={{ marginBottom: 28 }}>
+        <div
+          style={{
+            fontSize: 12,
+            color: "var(--accent)",
+            fontFamily: "'Space Mono', monospace",
+            marginBottom: 8,
+            letterSpacing: "0.1em",
+          }}
+        >
           VAR OPPORTUNITY
         </div>
-        <h1 style={{ fontSize: 32, fontWeight: 800, marginBottom: 8 }}>{report.companyName}</h1>
-        <div style={{ fontSize: 13, color: "var(--muted)" }}>
+        <h1 style={{ fontSize: 30, fontWeight: 800, marginBottom: 10 }}>
+          {report.companyName}
+        </h1>
+
+        {/* Score + fit badges */}
+        <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 8 }}>
+          {fc && (
+            <span
+              style={{
+                fontSize: 12,
+                fontFamily: "'Space Mono', monospace",
+                background: `${fcolor}14`,
+                border: `1px solid ${fcolor}33`,
+                borderRadius: 5,
+                padding: "3px 10px",
+                color: fcolor,
+                fontWeight: 700,
+              }}
+            >
+              {fc.toUpperCase()} FIT
+            </span>
+          )}
+          {report.varFitScore?.overallScore !== undefined && (
+            <span
+              style={{
+                fontSize: 12,
+                fontFamily: "'Space Mono', monospace",
+                background: `${fcolor}0d`,
+                border: `1px solid ${fcolor}28`,
+                borderRadius: 5,
+                padding: "3px 10px",
+                color: fcolor,
+              }}
+            >
+              {report.varFitScore.overallScore}/10
+            </span>
+          )}
+          {report.relevanceScore !== undefined && (
+            <span
+              style={{
+                fontSize: 11,
+                fontFamily: "'Space Mono', monospace",
+                background: "rgba(0,255,136,0.08)",
+                border: "1px solid rgba(0,255,136,0.2)",
+                borderRadius: 5,
+                padding: "3px 10px",
+                color: "var(--accent)",
+              }}
+            >
+              Relevance: {report.relevanceScore}/10
+            </span>
+          )}
+          {report.confidenceScore !== undefined && (
+            <span
+              style={{
+                fontSize: 11,
+                fontFamily: "'Space Mono', monospace",
+                background: "rgba(124,58,237,0.08)",
+                border: "1px solid rgba(124,58,237,0.2)",
+                borderRadius: 5,
+                padding: "3px 10px",
+                color: "var(--accent2)",
+              }}
+            >
+              Confidence: {report.confidenceScore}/10
+            </span>
+          )}
+        </div>
+
+        {/* deploymentEase + estimatedDealSize */}
+        {report.varFitScore && (
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Tag
+              label="Deployment"
+              value={report.varFitScore.deploymentEase}
+              color="var(--muted)"
+            />
+            <Tag
+              label="Deal Size"
+              value={report.varFitScore.estimatedDealSize}
+              color="var(--muted)"
+            />
+            <Tag
+              label="Tone"
+              value={report.pitchContext?.toneRecommendation ?? "formal"}
+              color="var(--muted)"
+            />
+          </div>
+        )}
+
+        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
           Detected {new Date(report.timestamp).toLocaleString()}
         </div>
       </div>
 
-      {/* News trigger */}
+      {/* ── News Trigger ─────────────────────────────────────────────────── */}
       <Section title="📰 News Trigger">
         <a
           href={report.newsSource}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ color: "var(--accent)", textDecoration: "none", fontSize: 14, fontWeight: 600 }}
+          style={{
+            color: "var(--accent)",
+            textDecoration: "none",
+            fontSize: 14,
+            fontWeight: 600,
+          }}
         >
           {report.newsTitle} ↗
         </a>
       </Section>
 
-      {/* Decision maker */}
+      {/* ── Fit Assessment ───────────────────────────────────────────────── */}
+      {report.varFitScore && (
+        <Section title="📊 Fit Assessment">
+          <div style={{ display: "flex", gap: 24, flexWrap: "wrap" }}>
+            {/* Fit Reasons */}
+            <div style={{ flex: 1, minWidth: 200 }}>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "#00ff88",
+                  marginBottom: 8,
+                  letterSpacing: "0.08em",
+                }}
+              >
+                ✓ WHY IT FITS
+              </div>
+              <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                {report.varFitScore.fitReasons.map((r, i) => (
+                  <li
+                    key={i}
+                    style={{
+                      fontSize: 13,
+                      color: "var(--text)",
+                      lineHeight: 1.6,
+                      marginBottom: 6,
+                      paddingLeft: 14,
+                      position: "relative",
+                    }}
+                  >
+                    <span
+                      style={{
+                        position: "absolute",
+                        left: 0,
+                        color: "#00ff88",
+                      }}
+                    >
+                      •
+                    </span>
+                    {r}
+                  </li>
+                ))}
+              </ul>
+              {report.varFitScore.strategicNotes && (
+                <div
+                  style={{
+                    marginTop: 10,
+                    fontSize: 12,
+                    color: "var(--muted)",
+                    fontStyle: "italic",
+                    lineHeight: 1.5,
+                  }}
+                >
+                  {report.varFitScore.strategicNotes}
+                </div>
+              )}
+            </div>
+
+            {/* Red Flags */}
+            {report.varFitScore.redFlags.length > 0 && (
+              <div style={{ flex: 1, minWidth: 200 }}>
+                <div
+                  style={{
+                    fontSize: 11,
+                    fontWeight: 700,
+                    color: "var(--warning)",
+                    marginBottom: 8,
+                    letterSpacing: "0.08em",
+                  }}
+                >
+                  ⚠ RED FLAGS
+                </div>
+                <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+                  {report.varFitScore.redFlags.map((f, i) => (
+                    <li
+                      key={i}
+                      style={{
+                        fontSize: 13,
+                        color: "var(--text)",
+                        lineHeight: 1.6,
+                        marginBottom: 6,
+                        paddingLeft: 14,
+                        position: "relative",
+                      }}
+                    >
+                      <span
+                        style={{
+                          position: "absolute",
+                          left: 0,
+                          color: "var(--warning)",
+                        }}
+                      >
+                        •
+                      </span>
+                      {f}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        </Section>
+      )}
+
+      {/* ── Key Decision Maker ───────────────────────────────────────────── */}
       <Section title="👤 Key Decision Maker">
         <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
           <InfoPill label="Name" value={report.decisionMaker} />
           <InfoPill label="Title" value={report.title} />
-          {report.companyWebsite && <InfoPill label="Website" value={report.companyWebsite} />}
+          {report.companyWebsite && (
+            <InfoPill label="Website" value={report.companyWebsite} />
+          )}
         </div>
         {report.linkedinUrl && (
           <a
@@ -314,10 +858,17 @@ function ReportDetail({ report }: { report: Report }) {
             target="_blank"
             rel="noopener noreferrer"
             style={{
-              display: "inline-flex", alignItems: "center", gap: 6,
-              marginTop: 12, padding: "6px 14px",
-              border: "1px solid var(--border)", borderRadius: 20,
-              color: "#0a66c2", textDecoration: "none", fontSize: 13, fontWeight: 600,
+              display: "inline-flex",
+              alignItems: "center",
+              gap: 6,
+              marginTop: 12,
+              padding: "6px 14px",
+              border: "1px solid var(--border)",
+              borderRadius: 20,
+              color: "#0a66c2",
+              textDecoration: "none",
+              fontSize: 13,
+              fontWeight: 600,
             }}
           >
             in LinkedIn Profile ↗
@@ -325,51 +876,159 @@ function ReportDetail({ report }: { report: Report }) {
         )}
       </Section>
 
-      {/* Company profile */}
+      {/* ── Company Profile ──────────────────────────────────────────────── */}
       <Section title="🏢 Company Profile">
-        <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)" }}>{report.companyProfile}</p>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)" }}>
+          {report.companyProfile}
+        </p>
       </Section>
 
-      {/* Person context */}
+      {/* ── Person Context ───────────────────────────────────────────────── */}
       <Section title="🧠 Person Context">
-        <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)" }}>{report.personProfile}</p>
+        <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)" }}>
+          {report.personProfile}
+        </p>
       </Section>
 
-      {/* Pitch */}
-      <div style={{
-        background: "rgba(0,255,136,0.05)",
-        border: "1px solid rgba(0,255,136,0.2)",
-        borderRadius: 12,
-        padding: 24,
-        marginTop: 24,
-      }}>
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: "var(--accent)", letterSpacing: "0.05em" }}>
+      {/* ── Pitch Box with Hook Angle + Tabs ─────────────────────────────── */}
+      <div
+        style={{
+          background: "rgba(0,255,136,0.05)",
+          border: "1px solid rgba(0,255,136,0.2)",
+          borderRadius: 12,
+          padding: 24,
+          marginTop: 24,
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 14,
+          }}
+        >
+          <div
+            style={{
+              fontSize: 13,
+              fontWeight: 700,
+              color: "var(--accent)",
+              letterSpacing: "0.05em",
+            }}
+          >
             💬 PERSONALIZED CLOUDBOX PITCH
           </div>
           <button
             onClick={copyPitch}
             style={{
-              padding: "5px 14px", border: "1px solid rgba(0,255,136,0.3)",
-              borderRadius: 6, background: "transparent",
+              padding: "5px 14px",
+              border: "1px solid rgba(0,255,136,0.3)",
+              borderRadius: 6,
+              background: "transparent",
               color: copied ? "var(--accent)" : "var(--muted)",
-              cursor: "pointer", fontSize: 12,
+              cursor: "pointer",
+              fontSize: 12,
               fontFamily: "'Space Mono', monospace",
             }}
           >
             {copied ? "✓ COPIED" : "COPY"}
           </button>
         </div>
-        <p style={{ fontSize: 15, lineHeight: 1.8, color: "var(--text)" }}>{report.pitch}</p>
+
+        {/* Hook Angle — shown prominently above tabs */}
+        {report.pitchContext?.hookAngle && (
+          <div
+            style={{
+              background: "rgba(0,255,136,0.08)",
+              borderRadius: 6,
+              padding: "10px 14px",
+              marginBottom: 16,
+            }}
+          >
+            <div
+              style={{
+                fontSize: 10,
+                fontWeight: 700,
+                color: "var(--accent)",
+                letterSpacing: "0.1em",
+                marginBottom: 4,
+              }}
+            >
+              HOOK ANGLE
+            </div>
+            <p style={{ fontSize: 13, color: "var(--text)", lineHeight: 1.5, margin: 0 }}>
+              {report.pitchContext.hookAngle}
+            </p>
+          </div>
+        )}
+
+        {/* Pitch variant tabs */}
+        {report.pitchVariants && (
+          <div
+            style={{
+              display: "flex",
+              gap: 6,
+              marginBottom: 18,
+              paddingBottom: 16,
+              borderBottom: "1px solid rgba(0,255,136,0.12)",
+            }}
+          >
+            {PITCH_TABS.map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => setActiveTab(tab.key)}
+                style={{
+                  padding: "5px 14px",
+                  border: "1px solid",
+                  borderColor:
+                    activeTab === tab.key ? "var(--accent)" : "var(--border)",
+                  borderRadius: 6,
+                  background:
+                    activeTab === tab.key
+                      ? "rgba(0,255,136,0.1)"
+                      : "transparent",
+                  color:
+                    activeTab === tab.key ? "var(--accent)" : "var(--muted)",
+                  cursor: "pointer",
+                  fontSize: 12,
+                  fontFamily: "'Space Mono', monospace",
+                  transition: "all 0.15s",
+                }}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <p style={{ fontSize: 15, lineHeight: 1.8, color: "var(--text)", margin: 0 }}>
+          {activePitch}
+        </p>
       </div>
     </div>
   );
 }
 
+// ─── SHARED UI PRIMITIVES ────────────────────────────────────────────────────
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid var(--border)" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--muted)", letterSpacing: "0.1em", marginBottom: 12 }}>
+    <div
+      style={{
+        marginBottom: 28,
+        paddingBottom: 28,
+        borderBottom: "1px solid var(--border)",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 12,
+          fontWeight: 700,
+          color: "var(--muted)",
+          letterSpacing: "0.1em",
+          marginBottom: 12,
+        }}
+      >
         {title}
       </div>
       {children}
@@ -377,13 +1036,49 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
+function Tag({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div
+      style={{
+        background: "var(--surface2)",
+        border: "1px solid var(--border)",
+        borderRadius: 6,
+        padding: "4px 10px",
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+      }}
+    >
+      <span style={{ fontSize: 10, color: "var(--muted)", letterSpacing: "0.05em" }}>
+        {label.toUpperCase()}
+      </span>
+      <span style={{ fontSize: 12, fontWeight: 600, color }}>
+        {value.toUpperCase()}
+      </span>
+    </div>
+  );
+}
+
 function InfoPill({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{
-      background: "var(--surface2)", border: "1px solid var(--border)",
-      borderRadius: 8, padding: "8px 14px",
-    }}>
-      <div style={{ fontSize: 10, color: "var(--muted)", letterSpacing: "0.1em", marginBottom: 2 }}>{label.toUpperCase()}</div>
+    <div
+      style={{
+        background: "var(--surface2)",
+        border: "1px solid var(--border)",
+        borderRadius: 8,
+        padding: "8px 14px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 10,
+          color: "var(--muted)",
+          letterSpacing: "0.1em",
+          marginBottom: 2,
+        }}
+      >
+        {label.toUpperCase()}
+      </div>
       <div style={{ fontSize: 13, fontWeight: 600 }}>{value}</div>
     </div>
   );
@@ -391,13 +1086,24 @@ function InfoPill({ label, value }: { label: string; value: string }) {
 
 function EmptyState() {
   return (
-    <div style={{
-      display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
-      height: "100%", color: "var(--muted)", gap: 12,
-    }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        justifyContent: "center",
+        height: "100%",
+        color: "var(--muted)",
+        gap: 12,
+      }}
+    >
       <div style={{ fontSize: 60 }}>🎯</div>
-      <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>Select a VAR Profile</div>
-      <div style={{ fontSize: 13 }}>Click any report on the left to view the full profile and pitch</div>
+      <div style={{ fontSize: 18, fontWeight: 700, color: "var(--text)" }}>
+        Select a VAR Profile
+      </div>
+      <div style={{ fontSize: 13 }}>
+        Click any report on the left to view the full profile and pitch
+      </div>
     </div>
   );
 }

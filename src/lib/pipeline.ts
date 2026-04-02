@@ -1,3 +1,8 @@
+// lib/pipeline.ts — DEPRECATED
+// Superseded by the multi-agent architecture in src/agents/.
+// Use runOrchestrator() from src/agents/orchestrator.ts instead of runPipeline().
+// Kept for reference — do not import from this file in new code.
+//
 // lib/pipeline.ts — The full VAR Hunter pipeline: Watchtower → Detective → Reporter
 
 import { searchWeb, searchNews, SearchResult } from "./search";

@@ -1,6 +1,10 @@
 {
   "crons": [
     {
+      "path": "/api/refresh-knowledge",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron",
       "schedule": "0 9 * * *"
     }
