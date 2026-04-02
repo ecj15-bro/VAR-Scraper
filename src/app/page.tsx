@@ -4,6 +4,19 @@ import { useState, useEffect, useCallback } from "react";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
+interface KnowledgeBase {
+  lastRefreshed: string;
+  cloudboxUpdates: string[];
+  industryTrends: string[];
+  competitorIntel: string[];
+  partnerEcosystem: string[];
+  varMarketSignals: string[];
+  refinedIdealVARProfile: string;
+  hotVerticals: string[];
+  coldVerticals: string[];
+  lastInsights: string;
+}
+
 interface VARFitScore {
   overallScore: number;
   fitCategory: "strong" | "moderate" | "weak" | "avoid";
@@ -50,6 +63,7 @@ interface Report {
 }
 
 type RunStatus = "idle" | "running" | "done" | "error";
+type ActiveView = "reports" | "intelligence";
 
 // ─── FIT CATEGORY COLORS ─────────────────────────────────────────────────────
 
@@ -78,6 +92,7 @@ const STAGE_LABELS = [
 
 export default function Dashboard() {
   const [reports, setReports] = useState<Report[]>([]);
+  const [kb, setKb] = useState<KnowledgeBase | null>(null);
   const [selected, setSelected] = useState<Report | null>(null);
   const [status, setStatus] = useState<RunStatus>("idle");
   const [stageIdx, setStageIdx] = useState(0);
@@ -90,11 +105,15 @@ export default function Dashboard() {
     avgRelevanceScore?: number;
   } | null>(null);
   const [lastRun, setLastRun] = useState<string | null>(null);
+  const [activeView, setActiveView] = useState<ActiveView>("reports");
+  const [kbRefreshing, setKbRefreshing] = useState(false);
+  const [kbRefreshError, setKbRefreshError] = useState(false);
 
   const fetchReports = useCallback(async () => {
     const res = await fetch("/api/reports");
     const data = await res.json();
     if (data.reports) setReports(data.reports);
+    if (data.knowledgeBase) setKb(data.knowledgeBase);
   }, []);
 
   useEffect(() => {
@@ -135,6 +154,21 @@ export default function Dashboard() {
     } catch {
       clearInterval(interval);
       setStatus("error");
+    }
+  };
+
+  const refreshKnowledge = async () => {
+    setKbRefreshing(true);
+    setKbRefreshError(false);
+    try {
+      const res = await fetch("/api/refresh-knowledge", { method: "POST" });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      if (data.knowledgeBase) setKb(data.knowledgeBase);
+    } catch {
+      setKbRefreshError(true);
+    } finally {
+      setKbRefreshing(false);
     }
   };
 
@@ -329,71 +363,624 @@ export default function Dashboard() {
         </div>
       )}
 
+      {/* Tab bar */}
+      <div
+        style={{
+          display: "flex",
+          gap: 0,
+          borderBottom: "1px solid var(--border)",
+          background: "var(--surface)",
+          padding: "0 32px",
+        }}
+      >
+        <TabButton
+          label={`VAR PROFILES${reports.length > 0 ? ` (${reports.length})` : ""}`}
+          active={activeView === "reports"}
+          onClick={() => setActiveView("reports")}
+          activeColor="var(--accent)"
+        />
+        <TabButton
+          label="MARKET INTELLIGENCE"
+          active={activeView === "intelligence"}
+          onClick={() => setActiveView("intelligence")}
+          activeColor="var(--accent2)"
+          dot={kb !== null}
+        />
+      </div>
+
       {/* Main content */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
-        {/* Report list */}
-        <div
-          style={{
-            width: 380,
-            borderRight: "1px solid var(--border)",
-            overflowY: "auto",
-            flexShrink: 0,
-          }}
-        >
+      {activeView === "reports" ? (
+        <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+          {/* Report list */}
           <div
             style={{
-              padding: "16px 20px 12px",
-              borderBottom: "1px solid var(--border)",
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
+              width: 380,
+              borderRight: "1px solid var(--border)",
+              overflowY: "auto",
+              flexShrink: 0,
             }}
           >
-            <span
+            <div
               style={{
-                fontFamily: "'Space Mono', monospace",
-                fontSize: 12,
-                color: "var(--muted)",
+                padding: "16px 20px 12px",
+                borderBottom: "1px solid var(--border)",
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
               }}
             >
-              VAR PROFILES — {reports.length} total
-            </span>
+              <span
+                style={{
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 12,
+                  color: "var(--muted)",
+                }}
+              >
+                VAR PROFILES — {reports.length} total
+              </span>
+            </div>
+
+            {reports.length === 0 ? (
+              <div
+                style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}
+              >
+                <div style={{ fontSize: 40, marginBottom: 12 }}>🎯</div>
+                <div style={{ fontSize: 14, marginBottom: 8 }}>No reports yet</div>
+                <div style={{ fontSize: 12 }}>
+                  Click &quot;Run Now&quot; to start the pipeline
+                </div>
+              </div>
+            ) : (
+              reports.map((r) => (
+                <ReportCard
+                  key={r.id}
+                  report={r}
+                  isSelected={selected?.id === r.id}
+                  onClick={() => setSelected(r)}
+                />
+              ))
+            )}
           </div>
 
-          {reports.length === 0 ? (
-            <div
-              style={{ padding: 40, textAlign: "center", color: "var(--muted)" }}
-            >
-              <div style={{ fontSize: 40, marginBottom: 12 }}>🎯</div>
-              <div style={{ fontSize: 14, marginBottom: 8 }}>No reports yet</div>
-              <div style={{ fontSize: 12 }}>
-                Click &quot;Run Now&quot; to start the pipeline
-              </div>
-            </div>
-          ) : (
-            reports.map((r) => (
-              <ReportCard
-                key={r.id}
-                report={r}
-                isSelected={selected?.id === r.id}
-                onClick={() => setSelected(r)}
-              />
-            ))
-          )}
+          {/* Detail panel */}
+          <div style={{ flex: 1, overflowY: "auto" }}>
+            {selected ? <ReportDetail report={selected} /> : <EmptyState />}
+          </div>
         </div>
-
-        {/* Detail panel */}
+      ) : (
         <div style={{ flex: 1, overflowY: "auto" }}>
-          {selected ? <ReportDetail report={selected} /> : <EmptyState />}
+          <IntelligencePanel
+            kb={kb}
+            refreshing={kbRefreshing}
+            error={kbRefreshError}
+            onRefresh={refreshKnowledge}
+          />
         </div>
-      </div>
+      )}
 
       <style>{`
         @keyframes pulse {
           0%, 100% { opacity: 1; }
           50% { opacity: 0.3; }
         }
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
       `}</style>
+    </div>
+  );
+}
+
+// ─── TAB BUTTON ──────────────────────────────────────────────────────────────
+
+function TabButton({
+  label,
+  active,
+  onClick,
+  activeColor,
+  dot,
+}: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  activeColor: string;
+  dot?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        padding: "14px 20px",
+        border: "none",
+        borderBottom: active ? `2px solid ${activeColor}` : "2px solid transparent",
+        background: "transparent",
+        color: active ? activeColor : "var(--muted)",
+        cursor: "pointer",
+        fontFamily: "'Space Mono', monospace",
+        fontSize: 12,
+        fontWeight: active ? 700 : 400,
+        letterSpacing: "0.08em",
+        transition: "all 0.15s",
+        display: "flex",
+        alignItems: "center",
+        gap: 6,
+        marginBottom: -1,
+      }}
+    >
+      {label}
+      {dot && !active && (
+        <span
+          style={{
+            width: 6,
+            height: 6,
+            borderRadius: "50%",
+            background: activeColor,
+            opacity: 0.7,
+            display: "inline-block",
+          }}
+        />
+      )}
+    </button>
+  );
+}
+
+// ─── INTELLIGENCE PANEL ──────────────────────────────────────────────────────
+
+function IntelligencePanel({
+  kb,
+  refreshing,
+  error,
+  onRefresh,
+}: {
+  kb: KnowledgeBase | null;
+  refreshing: boolean;
+  error: boolean;
+  onRefresh: () => void;
+}) {
+  const ageLabel = kb
+    ? (() => {
+        const h = Math.round(
+          (Date.now() - new Date(kb.lastRefreshed).getTime()) / 3600000
+        );
+        return h < 1 ? "just now" : h < 24 ? `${h}h ago` : `${Math.round(h / 24)}d ago`;
+      })()
+    : null;
+
+  return (
+    <div style={{ padding: "32px 40px", maxWidth: 1100 }}>
+      {/* Panel header */}
+      <div
+        style={{
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          marginBottom: 28,
+        }}
+      >
+        <div>
+          <div
+            style={{
+              fontSize: 11,
+              fontWeight: 700,
+              color: "var(--accent2)",
+              letterSpacing: "0.12em",
+              marginBottom: 6,
+              fontFamily: "'Space Mono', monospace",
+            }}
+          >
+            🔬 MARKET INTELLIGENCE
+          </div>
+          <h2 style={{ fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>
+            Cloudbox VAR Market Briefing
+          </h2>
+          {ageLabel && (
+            <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
+              Knowledge base refreshed {ageLabel} · Auto-refreshes daily at 6am UTC
+            </div>
+          )}
+        </div>
+
+        <div style={{ display: "flex", alignItems: "center", gap: 10, flexShrink: 0 }}>
+          {error && (
+            <span
+              style={{
+                fontSize: 12,
+                color: "var(--danger)",
+                fontFamily: "'Space Mono', monospace",
+              }}
+            >
+              ⚠ Refresh failed
+            </span>
+          )}
+          <button
+            onClick={onRefresh}
+            disabled={refreshing}
+            style={{
+              padding: "9px 20px",
+              border: "1px solid rgba(124,58,237,0.4)",
+              borderRadius: 6,
+              background: refreshing ? "rgba(124,58,237,0.05)" : "rgba(124,58,237,0.12)",
+              color: refreshing ? "var(--muted)" : "var(--accent2)",
+              cursor: refreshing ? "not-allowed" : "pointer",
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 12,
+              fontWeight: 700,
+              transition: "all 0.2s",
+              display: "flex",
+              alignItems: "center",
+              gap: 7,
+            }}
+          >
+            {refreshing && (
+              <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>
+                ◌
+              </span>
+            )}
+            {refreshing ? "REFRESHING..." : "↻ REFRESH NOW"}
+          </button>
+        </div>
+      </div>
+
+      {/* No KB yet */}
+      {!kb && !refreshing && (
+        <div
+          style={{
+            border: "1px dashed rgba(124,58,237,0.3)",
+            borderRadius: 12,
+            padding: "60px 40px",
+            textAlign: "center",
+            color: "var(--muted)",
+          }}
+        >
+          <div style={{ fontSize: 48, marginBottom: 16 }}>🔬</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text)", marginBottom: 8 }}>
+            No intelligence data yet
+          </div>
+          <div style={{ fontSize: 13, marginBottom: 24 }}>
+            Click &quot;Refresh Now&quot; to run the market research agent and build your first briefing.
+          </div>
+          <button
+            onClick={onRefresh}
+            style={{
+              padding: "10px 28px",
+              border: "none",
+              borderRadius: 6,
+              background: "var(--accent2)",
+              color: "#fff",
+              cursor: "pointer",
+              fontFamily: "'Space Mono', monospace",
+              fontSize: 13,
+              fontWeight: 700,
+            }}
+          >
+            ↻ BUILD INTELLIGENCE BRIEF
+          </button>
+        </div>
+      )}
+
+      {/* Loading skeleton */}
+      {!kb && refreshing && (
+        <div
+          style={{
+            border: "1px solid rgba(124,58,237,0.2)",
+            borderRadius: 12,
+            padding: "48px 40px",
+            textAlign: "center",
+            background: "rgba(124,58,237,0.03)",
+            color: "var(--muted)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 32,
+              marginBottom: 16,
+              display: "inline-block",
+              animation: "spin 2s linear infinite",
+            }}
+          >
+            ◌
+          </div>
+          <div style={{ fontSize: 14, color: "var(--accent2)", fontFamily: "'Space Mono', monospace" }}>
+            Researching market intelligence...
+          </div>
+          <div style={{ fontSize: 12, marginTop: 8 }}>This takes about 30–60 seconds</div>
+        </div>
+      )}
+
+      {/* ── EXECUTIVE BRIEFING ───────────────────────────────────────────────── */}
+      {kb && (
+        <>
+          <div
+            style={{
+              background: "rgba(124,58,237,0.07)",
+              border: "1px solid rgba(124,58,237,0.28)",
+              borderRadius: 12,
+              padding: "24px 28px",
+              marginBottom: 28,
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            {/* Decorative accent bar */}
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: 4,
+                background: "var(--accent2)",
+                borderRadius: "12px 0 0 12px",
+              }}
+            />
+            <div
+              style={{
+                fontSize: 11,
+                fontWeight: 700,
+                color: "var(--accent2)",
+                letterSpacing: "0.12em",
+                marginBottom: 12,
+                fontFamily: "'Space Mono', monospace",
+              }}
+            >
+              ⚡ EXECUTIVE BRIEFING
+            </div>
+            <p
+              style={{
+                fontSize: 16,
+                lineHeight: 1.8,
+                color: "var(--text)",
+                margin: 0,
+                fontWeight: 400,
+              }}
+            >
+              {kb.lastInsights}
+            </p>
+          </div>
+
+          {/* ── HOT / COLD VERTICALS ─────────────────────────────────────────── */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 20,
+              marginBottom: 24,
+            }}
+          >
+            {/* Hot Verticals */}
+            <div
+              style={{
+                background: "rgba(124,58,237,0.05)",
+                border: "1px solid rgba(124,58,237,0.2)",
+                borderRadius: 10,
+                padding: "20px 22px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--accent2)",
+                  letterSpacing: "0.1em",
+                  marginBottom: 14,
+                  fontFamily: "'Space Mono', monospace",
+                }}
+              >
+                🔥 HOT VERTICALS
+              </div>
+              {kb.hotVerticals.length === 0 ? (
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>No signals yet</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {kb.hotVerticals.map((v, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        fontSize: 12,
+                        background: "rgba(124,58,237,0.15)",
+                        border: "1px solid rgba(124,58,237,0.35)",
+                        borderRadius: 20,
+                        padding: "5px 12px",
+                        color: "var(--accent2)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {v}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Cold Verticals */}
+            <div
+              style={{
+                background: "rgba(107,107,133,0.05)",
+                border: "1px solid var(--border)",
+                borderRadius: 10,
+                padding: "20px 22px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--muted)",
+                  letterSpacing: "0.1em",
+                  marginBottom: 14,
+                  fontFamily: "'Space Mono', monospace",
+                }}
+              >
+                ❄ COLD VERTICALS
+              </div>
+              {kb.coldVerticals.length === 0 ? (
+                <div style={{ fontSize: 13, color: "var(--muted)" }}>None identified</div>
+              ) : (
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                  {kb.coldVerticals.map((v, i) => (
+                    <span
+                      key={i}
+                      style={{
+                        fontSize: 12,
+                        background: "rgba(107,107,133,0.1)",
+                        border: "1px solid rgba(107,107,133,0.25)",
+                        borderRadius: 20,
+                        padding: "5px 12px",
+                        color: "var(--muted)",
+                        fontWeight: 600,
+                      }}
+                    >
+                      {v}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── CLOUDBOX UPDATES + COMPETITOR INTEL ─────────────────────────── */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 20,
+              marginBottom: 24,
+            }}
+          >
+            <IntelCard
+              title="📦 CLOUDBOX UPDATES"
+              items={kb.cloudboxUpdates}
+              accentColor="var(--accent2)"
+              emptyText="No recent updates found"
+            />
+            <IntelCard
+              title="🕵️ COMPETITOR INTEL"
+              items={kb.competitorIntel}
+              accentColor="#ff8800"
+              emptyText="No competitor signals found"
+            />
+          </div>
+
+          {/* ── VAR MARKET SIGNALS + INDUSTRY TRENDS ────────────────────────── */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 20,
+              marginBottom: 24,
+            }}
+          >
+            <IntelCard
+              title="📡 VAR MARKET SIGNALS"
+              items={kb.varMarketSignals}
+              accentColor="var(--accent)"
+              emptyText="No market signals found"
+            />
+            <IntelCard
+              title="📈 INDUSTRY TRENDS"
+              items={kb.industryTrends}
+              accentColor="#00aaff"
+              emptyText="No trends found"
+            />
+          </div>
+
+          {/* ── IDEAL VAR PROFILE ────────────────────────────────────────────── */}
+          {kb.refinedIdealVARProfile && (
+            <div
+              style={{
+                background: "rgba(124,58,237,0.04)",
+                border: "1px solid rgba(124,58,237,0.18)",
+                borderRadius: 10,
+                padding: "20px 22px",
+              }}
+            >
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--accent2)",
+                  letterSpacing: "0.1em",
+                  marginBottom: 10,
+                  fontFamily: "'Space Mono', monospace",
+                }}
+              >
+                🎯 CURRENT IDEAL VAR PROFILE
+              </div>
+              <p style={{ fontSize: 14, lineHeight: 1.7, color: "var(--text)", margin: 0 }}>
+                {kb.refinedIdealVARProfile}
+              </p>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+function IntelCard({
+  title,
+  items,
+  accentColor,
+  emptyText,
+}: {
+  title: string;
+  items: string[];
+  accentColor: string;
+  emptyText: string;
+}) {
+  return (
+    <div
+      style={{
+        background: "var(--surface)",
+        border: "1px solid var(--border)",
+        borderRadius: 10,
+        padding: "20px 22px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11,
+          fontWeight: 700,
+          color: accentColor,
+          letterSpacing: "0.1em",
+          marginBottom: 14,
+          fontFamily: "'Space Mono', monospace",
+        }}
+      >
+        {title}
+      </div>
+      {items.length === 0 ? (
+        <div style={{ fontSize: 13, color: "var(--muted)" }}>{emptyText}</div>
+      ) : (
+        <ul style={{ listStyle: "none", padding: 0, margin: 0 }}>
+          {items.map((item, i) => (
+            <li
+              key={i}
+              style={{
+                fontSize: 13,
+                color: "var(--text)",
+                lineHeight: 1.6,
+                marginBottom: 10,
+                paddingLeft: 14,
+                position: "relative",
+              }}
+            >
+              <span
+                style={{
+                  position: "absolute",
+                  left: 0,
+                  color: accentColor,
+                  opacity: 0.7,
+                }}
+              >
+                •
+              </span>
+              {item}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }

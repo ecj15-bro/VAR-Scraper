@@ -31,7 +31,7 @@ export async function POST(_req: NextRequest) {
   try {
     console.log("📚 Manual knowledge refresh triggered from dashboard");
     const kb = await runKnowledgeRefresh();
-    return NextResponse.json({ success: true, lastRefreshed: kb.lastRefreshed });
+    return NextResponse.json({ success: true, lastRefreshed: kb.lastRefreshed, knowledgeBase: kb });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Unknown error";
     console.error("Manual knowledge refresh failed:", e);
