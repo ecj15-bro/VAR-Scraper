@@ -1,17 +1,6 @@
 // lib/teams.ts — Microsoft Teams Incoming Webhook sender
 
-export interface VARReport {
-  companyName: string;
-  decisionMaker: string;
-  title: string;
-  linkedinUrl?: string;
-  companyWebsite?: string;
-  companyProfile: string;
-  personProfile: string;
-  pitch: string;
-  newsSource: string;
-  newsTitle: string;
-}
+import { VARReport } from "./email";
 
 export async function sendToTeams(report: VARReport): Promise<void> {
   const webhookUrl = process.env.TEAMS_WEBHOOK_URL;

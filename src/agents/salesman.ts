@@ -12,6 +12,8 @@ export interface PitchVariants {
   cold_email: string;
   linkedin_message: string;
   followup_email: string;
+  text_message: string;
+  executive_brief: string;
 }
 
 export interface SalesmanResult extends DetectiveResult {
@@ -74,7 +76,7 @@ async function runSalesmanSubagent(
       `You are a senior business development strategist for Cloudbox (cloudboxapp.com).
 
 CLOUDBOX PRODUCT CONTEXT:
-Cloudbox is the world's first real-time weight-based inventory management solution. It uses IoT smart scales to automatically track inventory by weight — no manual scanning, no barcodes, no human error. Integrates into existing ERP and WMS workflows. Ideal for warehouses, manufacturers, distributors, and physical goods businesses. VARs who add Cloudbox gain a differentiated hardware+software product with strong recurring IoT subscription revenue.
+Cloudbox is the world's first real-time weight-based inventory management solution. It uses IoT smart scales to automatically track inventory by weight. No manual scanning, no barcodes, no human error. Integrates into existing ERP and WMS workflows. Ideal for warehouses, manufacturers, distributors, and physical goods businesses. VARs who add Cloudbox gain a differentiated hardware+software product with strong recurring IoT subscription revenue.
 
 STRATEGIC PITCH GUIDANCE (from Cloudbox context intelligence):
 Hook angle: ${pitchContext.hookAngle}
@@ -88,11 +90,11 @@ Why they fit: ${varFitScore.fitReasons.slice(0, 2).join("; ")}
 Strategic context: ${varFitScore.strategicNotes}
 
 YOUR TASK:
-Generate THREE outreach pitch variants for ${result.decisionMaker}, ${result.title} at ${result.companyName}.
+Generate FIVE outreach pitch variants for ${result.decisionMaker}, ${result.title} at ${result.companyName}.
 
 ${
   isHighConfidence
-    ? "You have HIGH CONFIDENCE verified data — be highly specific and personalized in all three variants."
+    ? "You have HIGH CONFIDENCE verified data — be highly specific and personalized in all five variants."
     : "You have MODERATE CONFIDENCE data — stay grounded in what is known about the company type; do not fabricate specifics."
 }
 
@@ -105,12 +107,13 @@ ${result.companyProfile}
 NEWS TRIGGER (what surfaced this lead):
 "${result.newsTitle}" — ${result.newsSnippet}
 
-PITCH RULES — all three must:
+PITCH RULES — all five must:
 - Sound like a sharp, experienced human wrote them — not a bot or template
 - Reference something specific and real about ${result.companyName} or the news trigger
 - Use the hook angle from the strategic guidance above
 - NEVER start with "I hope this message finds you well", "I wanted to reach out", "touching base", or any filler
 - NEVER use buzzwords: "synergy", "leverage", "deep dive", "circle back", "game-changer"
+- Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
 - Match the tone recommendation: ${pitchContext.toneRecommendation}
 - End with a clear, low-pressure, specific CTA
 
@@ -118,15 +121,21 @@ VARIANTS TO GENERATE:
 
 1. cold_email: 4–5 sentence cold email opening. Lead with the hook angle or something specific from the news trigger. Explain the Cloudbox fit for their specific book of business. Close with a specific, low-pressure ask.
 
-2. linkedin_message: 2–3 sentence LinkedIn connection request. Ultra concise — no setup, no fluff. One hook, one line on Cloudbox, one soft implied ask.
+2. linkedin_message: 2–3 sentence LinkedIn connection request. Ultra concise, no setup, no fluff. One hook, one line on Cloudbox, one soft implied ask.
 
 3. followup_email: Follow-up assuming no response after one week. Different angle or new value prop not in the cold email. 3–4 sentences. Not apologetic.
+
+4. text_message: 1–2 sentences max. SMS style. Casual and direct, assumes a warm intro context (e.g., met at a conference, referred by a mutual contact). No formal sign-off. Just the hook and a question.
+
+5. executive_brief: 3 bullet points max. Boardroom style. Leads with the business case and ROI angle. Zero fluff, zero pleasantries. Each bullet is one punchy sentence. Format as plain text bullets starting with "•", not a letter or greeting.
 
 Return ONLY a JSON object (no markdown, no explanation):
 {
   "cold_email": "...",
   "linkedin_message": "...",
-  "followup_email": "..."
+  "followup_email": "...",
+  "text_message": "...",
+  "executive_brief": "..."
 }`,
       `Generate pitches for ${result.companyName} — ${result.decisionMaker}`
     );

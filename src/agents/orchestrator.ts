@@ -4,7 +4,8 @@
 // Pipeline flow:
 //   Watchtower → Context (pre-filter) → Detective → Context (re-score + enrich) → Salesman
 
-import { runWatchtower, ScoredLead } from "./watchtower";
+import { runWatchtower, ScoredLead, WatchtowerResult } from "./watchtower";
+import { EvolvedSearchParams } from "@/lib/store";
 import { runDetective, DetectiveResult } from "./detective";
 import { runSalesman, SalesmanResult, SalesmanInput } from "./salesman";
 import {
@@ -16,7 +17,39 @@ import {
   PitchContext,
 } from "./context";
 
+// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
+
+function createConcurrencyLimiter(max: number) {
+  let running = 0;
+  const queue: Array<() => void> = [];
+
+  function next() {
+    if (queue.length > 0 && running < max) {
+      running++;
+      queue.shift()!();
+    }
+  }
+
+  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
+    await new Promise<void>((resolve) => {
+      if (running < max) { running++; resolve(); }
+      else { queue.push(resolve); }
+    });
+    try { return await fn(); }
+    finally { running--; next(); }
+  };
+}
+
 // ─── TYPES ──────────────────────────────────────────────────────────────────
+
+const DEFAULT_EVOLUTION: EvolvedSearchParams = {
+  retireQueries: [],
+  addQueries: [],
+  hotVerticalQueries: [],
+  ecosystemQueries: [],
+  saturatedQueries: [],
+  evolutionRationale: "Search evolution unavailable this run.",
+};
 
 export interface OrchestratorResult {
   processed: number;
@@ -26,6 +59,9 @@ export interface OrchestratorResult {
   reports: SalesmanResult[];
   totalLeadsFound: number;
   avgRelevanceScore: number;
+  searchEvolution: EvolvedSearchParams;
+  queriesRetired: number;
+  queriesAdded: number;
 }
 
 // ─── ORCHESTRATOR ───────────────────────────────────────────────────────────
@@ -42,12 +78,18 @@ export async function runOrchestrator(
   let contextFiltered = 0;
 
   // ── Stage 1: Watchtower ──────────────────────────────────────────────────
-  let leads: ScoredLead[] = [];
+  let watchtowerResult: WatchtowerResult = {
+    leads: [],
+    searchEvolution: DEFAULT_EVOLUTION,
+    queriesRetired: 0,
+    queriesAdded: 0,
+  };
   try {
-    leads = await runWatchtower(backfill);
+    watchtowerResult = await runWatchtower(backfill);
   } catch (e) {
     console.error("[Orchestrator] Watchtower stage failed:", e);
   }
+  const { leads, searchEvolution, queriesRetired, queriesAdded } = watchtowerResult;
 
   const totalLeadsFound = leads.length;
   const avgRelevanceScore =
@@ -66,26 +108,18 @@ export async function runOrchestrator(
 
   if (leads.length === 0) {
     return {
-      processed: 0,
-      skipped: 0,
-      contextFiltered: 0,
-      errors: 0,
-      reports: [],
-      totalLeadsFound: 0,
-      avgRelevanceScore: 0,
+      processed: 0, skipped: 0, contextFiltered: 0, errors: 0,
+      reports: [], totalLeadsFound: 0, avgRelevanceScore: 0,
+      searchEvolution, queriesRetired, queriesAdded,
     };
   }
 
   if (dryRun) {
     console.log("[Orchestrator] Dry run — stopping after Watchtower");
     return {
-      processed: 0,
-      skipped: leads.length,
-      contextFiltered: 0,
-      errors: 0,
-      reports: [],
-      totalLeadsFound,
-      avgRelevanceScore,
+      processed: 0, skipped: leads.length, contextFiltered: 0, errors: 0,
+      reports: [], totalLeadsFound, avgRelevanceScore,
+      searchEvolution, queriesRetired, queriesAdded,
     };
   }
 
@@ -93,13 +127,16 @@ export async function runOrchestrator(
   // Score from name + news only — saves Detective API calls on obvious misses.
   console.log(`⚡ CONTEXT: Pre-scoring ${leads.length} leads before Detective...`);
 
+  const prescore = createConcurrencyLimiter(5);
   const preFitScores = await Promise.all(
     leads.map((lead) =>
-      scoreVARFit(
-        lead.companyName,
-        "",
-        "",
-        `${lead.newsTitle}: ${lead.newsSnippet}`
+      prescore(() =>
+        scoreVARFit(
+          lead.companyName,
+          "",
+          "",
+          `${lead.newsTitle}: ${lead.newsSnippet}`
+        )
       ).catch((e) => {
         console.error(`[Orchestrator] Pre-score failed for ${lead.companyName}:`, e);
         return null;
@@ -126,13 +163,9 @@ export async function runOrchestrator(
 
   if (qualifiedLeads.length === 0) {
     return {
-      processed: 0,
-      skipped: 0,
-      contextFiltered,
-      errors: 0,
-      reports: [],
-      totalLeadsFound,
-      avgRelevanceScore,
+      processed: 0, skipped: 0, contextFiltered, errors: 0,
+      reports: [], totalLeadsFound, avgRelevanceScore,
+      searchEvolution, queriesRetired, queriesAdded,
     };
   }
 
@@ -150,9 +183,10 @@ export async function runOrchestrator(
   // Now we have companyProfile and personProfile — this is a much richer scoring pass.
   console.log(`⚡ CONTEXT: Re-scoring ${detectiveResults.length} leads with full profiles...`);
 
+  const enrich = createConcurrencyLimiter(5);
   const enrichedItems = await Promise.all(
     detectiveResults.map(
-      async (result): Promise<SalesmanInput | null> => {
+      (result): Promise<SalesmanInput | null> => enrich(async () => {
         try {
           // Re-score with full data
           const varFitScore = await scoreVARFit(
@@ -197,7 +231,7 @@ export async function runOrchestrator(
           );
           return null;
         }
-      }
+      })
     )
   );
 
@@ -211,13 +245,9 @@ export async function runOrchestrator(
 
   if (salesmanItems.length === 0) {
     return {
-      processed: 0,
-      skipped: 0,
-      contextFiltered,
-      errors: detectiveErrors,
-      reports: [],
-      totalLeadsFound,
-      avgRelevanceScore,
+      processed: 0, skipped: 0, contextFiltered, errors: detectiveErrors,
+      reports: [], totalLeadsFound, avgRelevanceScore,
+      searchEvolution, queriesRetired, queriesAdded,
     };
   }
 
@@ -239,6 +269,9 @@ export async function runOrchestrator(
     reports: salesmanResults,
     totalLeadsFound,
     avgRelevanceScore,
+    searchEvolution,
+    queriesRetired,
+    queriesAdded,
   };
 
   console.log(

@@ -2,7 +2,16 @@
 
 import { searchNews, SearchResult } from "@/lib/search";
 import { askClaude } from "@/lib/claude";
-import { hasSeenCompany } from "@/lib/store";
+import {
+  hasSeenCompany,
+  getSearchHistory,
+  getSeenCompanies,
+  saveSearchHistory,
+  saveSearchEvolution,
+  getKnowledgeBase,
+  EvolvedSearchParams,
+} from "@/lib/store";
+import { evolveSearchParameters } from "./context";
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 
@@ -15,7 +24,20 @@ export interface ScoredLead {
   relevanceScore: number;
 }
 
-// ─── SEARCH CATEGORIES ──────────────────────────────────────────────────────
+export interface WatchtowerResult {
+  leads: ScoredLead[];
+  searchEvolution: EvolvedSearchParams;
+  queriesRetired: number;
+  queriesAdded: number;
+}
+
+interface ActiveQuery {
+  query: string;
+  category: string;
+  saturated: boolean;
+}
+
+// ─── SEARCH CATEGORY DEFINITIONS ─────────────────────────────────────────────
 
 interface SearchCategory {
   name: string;
@@ -93,26 +115,27 @@ const SEARCH_CATEGORIES: SearchCategory[] = [
   },
 ];
 
-// ─── SUBAGENT ───────────────────────────────────────────────────────────────
+// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
 
-// Handles one search category. Returns raw search results.
-async function runWatchtowerSubagent(
-  category: SearchCategory,
-  backfill: boolean
-): Promise<SearchResult[]> {
-  const queries = backfill ? category.backfillQueries : category.dailyQueries;
-  const results: SearchResult[] = [];
+function createConcurrencyLimiter(max: number) {
+  let running = 0;
+  const queue: Array<() => void> = [];
 
-  for (const query of queries) {
-    try {
-      const r = await searchNews(query, 5);
-      results.push(...r);
-    } catch (e) {
-      console.error(`[Watchtower:${category.name}] Search failed for "${query}":`, e);
+  function next() {
+    if (queue.length > 0 && running < max) {
+      running++;
+      queue.shift()!();
     }
   }
 
-  return results;
+  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
+    await new Promise<void>((resolve) => {
+      if (running < max) { running++; resolve(); }
+      else { queue.push(resolve); }
+    });
+    try { return await fn(); }
+    finally { running--; next(); }
+  };
 }
 
 // ─── SCORING ────────────────────────────────────────────────────────────────
@@ -158,23 +181,115 @@ Return ONLY a JSON array (no markdown, no explanation). Include an entry for eve
   }
 }
 
-// ─── PARENT AGENT ───────────────────────────────────────────────────────────
+// ─── DEFAULT EVOLUTION ────────────────────────────────────────────────────────
 
-// Spawns all category subagents in parallel, deduplicates, scores in batches,
-// and returns only high-relevance leads not already in the store.
-export async function runWatchtower(backfill: boolean): Promise<ScoredLead[]> {
+const DEFAULT_EVOLUTION: EvolvedSearchParams = {
+  retireQueries: [],
+  addQueries: [],
+  hotVerticalQueries: [],
+  ecosystemQueries: [],
+  saturatedQueries: [],
+  evolutionRationale: "Search evolution skipped this run.",
+};
+
+// ─── PARENT AGENT ────────────────────────────────────────────────────────────
+
+export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult> {
   console.log(`🔭 WATCHTOWER: Starting ${backfill ? "backfill" : "daily"} scan across ${SEARCH_CATEGORIES.length} categories...`);
 
-  // Spawn all category subagents in parallel
-  const categoryResults = await Promise.all(
-    SEARCH_CATEGORIES.map((cat) => runWatchtowerSubagent(cat, backfill))
+  // ── Load context for evolution ───────────────────────────────────────────
+  const searchHistory = getSearchHistory();
+  const kb = getKnowledgeBase();
+  const seenCompanies = getSeenCompanies();
+
+  // ── Build current query list from SEARCH_CATEGORIES ──────────────────────
+  const currentQueries: string[] = [];
+  for (const cat of SEARCH_CATEGORIES) {
+    const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
+    currentQueries.push(...qs);
+  }
+
+  // ── Evolve search parameters ──────────────────────────────────────────────
+  let evolution = DEFAULT_EVOLUTION;
+  try {
+    evolution = await evolveSearchParameters(currentQueries, searchHistory, kb, seenCompanies);
+    const added = evolution.addQueries.length + evolution.hotVerticalQueries.length + evolution.ecosystemQueries.length;
+    console.log(`🔭 WATCHTOWER [evolution]: ${added} queries added, ${evolution.retireQueries.length} retired, ${evolution.saturatedQueries.length} saturating`);
+    if (evolution.evolutionRationale) {
+      console.log(`🔭 WATCHTOWER [evolution]: ${evolution.evolutionRationale}`);
+    }
+    saveSearchEvolution(evolution);
+  } catch (e) {
+    console.error("[Watchtower] Search evolution failed, using current queries:", e);
+  }
+
+  // ── Build active query list ───────────────────────────────────────────────
+  const retireSet = new Set(evolution.retireQueries);
+  const saturatedSet = new Set(evolution.saturatedQueries);
+  const activeQueries: ActiveQuery[] = [];
+
+  for (const cat of SEARCH_CATEGORIES) {
+    const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
+    for (const q of qs) {
+      if (!retireSet.has(q)) {
+        activeQueries.push({ query: q, category: cat.name, saturated: saturatedSet.has(q) });
+      }
+    }
+  }
+
+  const existingSet = new Set(activeQueries.map((q) => q.query));
+  const evolvedToAdd = [
+    ...evolution.addQueries,
+    ...evolution.hotVerticalQueries,
+    ...evolution.ecosystemQueries,
+  ];
+  for (const q of evolvedToAdd) {
+    if (!existingSet.has(q)) {
+      activeQueries.push({ query: q, category: "evolved", saturated: false });
+      existingSet.add(q);
+    }
+  }
+
+  const currentSet = new Set(currentQueries);
+  const queriesRetired = evolution.retireQueries.filter((q) => currentSet.has(q)).length;
+  const queriesAdded = evolvedToAdd.filter((q) => !currentSet.has(q)).length;
+
+  if (saturatedSet.size > 0) {
+    console.log(`🔭 WATCHTOWER [evolution]: Saturating queries (still running): ${Array.from(saturatedSet).join(", ")}`);
+  }
+
+  console.log(`🔭 WATCHTOWER: Running ${activeQueries.length} active queries (${queriesRetired} retired, ${queriesAdded} added by evolution)`);
+
+  if (activeQueries.length === 0) {
+    return { leads: [], searchEvolution: evolution, queriesRetired, queriesAdded };
+  }
+
+  // ── Run all queries with concurrency limit ────────────────────────────────
+  const limitSearch = createConcurrencyLimiter(5);
+
+  const queryRuns: { aq: ActiveQuery; results: SearchResult[] }[] = await Promise.all(
+    activeQueries.map((aq) =>
+      limitSearch(async () => {
+        try {
+          const results = await searchNews(aq.query, 5);
+          return { aq, results };
+        } catch (e) {
+          console.error(`[Watchtower] Search failed for "${aq.query}":`, e);
+          return { aq, results: [] as SearchResult[] };
+        }
+      })
+    )
   );
 
-  // Flatten and deduplicate by URL
+  // ── Build URL attribution map and deduplicate ─────────────────────────────
+  const urlToQueries = new Map<string, string[]>();
   const allResults: SearchResult[] = [];
   const seenUrls = new Set<string>();
-  for (const results of categoryResults) {
+
+  for (const { aq, results } of queryRuns) {
     for (const r of results) {
+      if (!urlToQueries.has(r.link)) urlToQueries.set(r.link, []);
+      urlToQueries.get(r.link)!.push(aq.query);
       if (!seenUrls.has(r.link)) {
         seenUrls.add(r.link);
         allResults.push(r);
@@ -184,9 +299,11 @@ export async function runWatchtower(backfill: boolean): Promise<ScoredLead[]> {
 
   console.log(`🔭 WATCHTOWER: Deduped to ${allResults.length} unique results, scoring...`);
 
-  if (allResults.length === 0) return [];
+  if (allResults.length === 0) {
+    return { leads: [], searchEvolution: evolution, queriesRetired, queriesAdded };
+  }
 
-  // Score in batches of 20
+  // ── Score in batches of 20 ────────────────────────────────────────────────
   const BATCH_SIZE = 20;
   const allScored: { index: number; companyName: string; relevanceScore: number }[] = [];
 
@@ -194,14 +311,13 @@ export async function runWatchtower(backfill: boolean): Promise<ScoredLead[]> {
     const batch = allResults.slice(i, i + BATCH_SIZE);
     try {
       const batchScores = await scoreBatch(batch);
-      // Remap batch-local indices to global positions
       allScored.push(...batchScores.map((s) => ({ ...s, index: s.index + i })));
     } catch (e) {
       console.error(`[Watchtower] Failed to score batch starting at index ${i}:`, e);
     }
   }
 
-  // Filter to score >= 6 and not already seen in the store
+  // ── Filter qualified leads ────────────────────────────────────────────────
   const leads: ScoredLead[] = allScored
     .filter((s) => s.relevanceScore >= 6 && s.index < allResults.length)
     .filter((s) => !hasSeenCompany(s.companyName))
@@ -217,6 +333,32 @@ export async function runWatchtower(backfill: boolean): Promise<ScoredLead[]> {
       };
     });
 
-  console.log(`🔭 WATCHTOWER: ${leads.length} qualified leads (score ≥ 6, not previously seen)`);
-  return leads;
+  console.log(`🔭 WATCHTOWER: ${leads.length} qualified leads (score >= 6, not previously seen)`);
+
+  // ── Save search history per query ─────────────────────────────────────────
+  const now = new Date().toISOString();
+
+  for (const { aq, results } of queryRuns) {
+    const queryUrlSet = new Set(results.map((r) => r.link));
+    const attributedLeads = leads.filter((l) => queryUrlSet.has(l.newsUrl));
+    const avgScore =
+      attributedLeads.length > 0
+        ? Math.round(
+            (attributedLeads.reduce((sum, l) => sum + l.relevanceScore, 0) / attributedLeads.length) * 10
+          ) / 10
+        : 0;
+
+    saveSearchHistory({
+      id: crypto.randomUUID(),
+      timestamp: now,
+      query: aq.query,
+      category: aq.category,
+      resultsCount: results.length,
+      qualifiedLeadsCount: attributedLeads.length,
+      avgRelevanceScore: avgScore,
+      companiesFound: attributedLeads.map((l) => l.companyName),
+    });
+  }
+
+  return { leads, searchEvolution: evolution, queriesRetired, queriesAdded };
 }

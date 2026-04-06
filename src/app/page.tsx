@@ -39,6 +39,8 @@ interface PitchVariants {
   cold_email: string;
   linkedin_message: string;
   followup_email: string;
+  text_message: string;
+  executive_brief: string;
 }
 
 interface Report {
@@ -60,6 +62,15 @@ interface Report {
   varFitScore?: VARFitScore;
   pitchContext?: PitchContext;
   briefing?: string;
+}
+
+interface EvolvedSearchParams {
+  retireQueries: string[];
+  addQueries: string[];
+  hotVerticalQueries: string[];
+  ecosystemQueries: string[];
+  saturatedQueries: string[];
+  evolutionRationale: string;
 }
 
 type RunStatus = "idle" | "running" | "done" | "error";
@@ -108,17 +119,35 @@ export default function Dashboard() {
   const [activeView, setActiveView] = useState<ActiveView>("reports");
   const [kbRefreshing, setKbRefreshing] = useState(false);
   const [kbRefreshError, setKbRefreshError] = useState(false);
+  const [clearConfirm, setClearConfirm] = useState(false);
+  const [searchEvolution, setSearchEvolution] = useState<EvolvedSearchParams | null>(null);
+  const [totalUniqueQueries, setTotalUniqueQueries] = useState(0);
 
   const fetchReports = useCallback(async () => {
     const res = await fetch("/api/reports");
     const data = await res.json();
     if (data.reports) setReports(data.reports);
     if (data.knowledgeBase) setKb(data.knowledgeBase);
+    if (data.searchEvolution) setSearchEvolution(data.searchEvolution);
+    if (typeof data.totalUniqueQueries === "number") setTotalUniqueQueries(data.totalUniqueQueries);
   }, []);
 
   useEffect(() => {
     fetchReports();
   }, [fetchReports]);
+
+  const deleteLead = async (id: string) => {
+    await fetch(`/api/reports?id=${id}`, { method: "DELETE" });
+    setReports((prev) => prev.filter((r) => r.id !== id));
+    if (selected?.id === id) setSelected(null);
+  };
+
+  const clearAllLeads = async () => {
+    await fetch("/api/reports?all=true", { method: "DELETE" });
+    setReports([]);
+    setSelected(null);
+    setClearConfirm(false);
+  };
 
   const runPipeline = async (dryRun = false) => {
     setStatus("running");
@@ -418,6 +447,61 @@ export default function Dashboard() {
               >
                 VAR PROFILES — {reports.length} total
               </span>
+              {reports.length > 0 && (
+                clearConfirm ? (
+                  <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <span style={{ fontSize: 11, color: "var(--danger)", fontFamily: "'Space Mono', monospace" }}>
+                      Clear all?
+                    </span>
+                    <button
+                      onClick={clearAllLeads}
+                      style={{
+                        fontSize: 11,
+                        padding: "3px 8px",
+                        border: "1px solid var(--danger)",
+                        borderRadius: 4,
+                        background: "rgba(255,68,68,0.1)",
+                        color: "var(--danger)",
+                        cursor: "pointer",
+                        fontFamily: "'Space Mono', monospace",
+                      }}
+                    >
+                      Yes
+                    </button>
+                    <button
+                      onClick={() => setClearConfirm(false)}
+                      style={{
+                        fontSize: 11,
+                        padding: "3px 8px",
+                        border: "1px solid var(--border)",
+                        borderRadius: 4,
+                        background: "transparent",
+                        color: "var(--muted)",
+                        cursor: "pointer",
+                        fontFamily: "'Space Mono', monospace",
+                      }}
+                    >
+                      No
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => setClearConfirm(true)}
+                    style={{
+                      fontSize: 11,
+                      padding: "3px 8px",
+                      border: "1px solid var(--border)",
+                      borderRadius: 4,
+                      background: "transparent",
+                      color: "var(--muted)",
+                      cursor: "pointer",
+                      fontFamily: "'Space Mono', monospace",
+                    }}
+                  >
+                    Clear all
+                  </button>
+                )
+              )}
             </div>
 
             {reports.length === 0 ? (
@@ -437,6 +521,7 @@ export default function Dashboard() {
                   report={r}
                   isSelected={selected?.id === r.id}
                   onClick={() => setSelected(r)}
+                  onDelete={() => deleteLead(r.id)}
                 />
               ))
             )}
@@ -454,6 +539,8 @@ export default function Dashboard() {
             refreshing={kbRefreshing}
             error={kbRefreshError}
             onRefresh={refreshKnowledge}
+            searchEvolution={searchEvolution}
+            totalUniqueQueries={totalUniqueQueries}
           />
         </div>
       )}
@@ -532,11 +619,15 @@ function IntelligencePanel({
   refreshing,
   error,
   onRefresh,
+  searchEvolution,
+  totalUniqueQueries,
 }: {
   kb: KnowledgeBase | null;
   refreshing: boolean;
   error: boolean;
   onRefresh: () => void;
+  searchEvolution: EvolvedSearchParams | null;
+  totalUniqueQueries: number;
 }) {
   const ageLabel = kb
     ? (() => {
@@ -914,6 +1005,152 @@ function IntelligencePanel({
           )}
         </>
       )}
+
+      {/* ── SEARCH EVOLUTION ──────────────────────────────────────────────── */}
+      {searchEvolution && (
+        <div style={{ marginTop: kb ? 32 : 0 }}>
+          {/* Section header */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 20,
+            }}
+          >
+            <div>
+              <div
+                style={{
+                  fontSize: 11,
+                  fontWeight: 700,
+                  color: "var(--accent2)",
+                  letterSpacing: "0.12em",
+                  marginBottom: 6,
+                  fontFamily: "'Space Mono', monospace",
+                }}
+              >
+                🧬 SEARCH EVOLUTION
+              </div>
+              <h2 style={{ fontSize: 20, fontWeight: 800, margin: 0 }}>
+                Query Intelligence
+              </h2>
+            </div>
+            {totalUniqueQueries > 0 && (
+              <div
+                style={{
+                  textAlign: "right",
+                  background: "rgba(124,58,237,0.08)",
+                  border: "1px solid rgba(124,58,237,0.25)",
+                  borderRadius: 8,
+                  padding: "8px 16px",
+                }}
+              >
+                <div
+                  style={{
+                    fontSize: 24,
+                    fontWeight: 800,
+                    color: "var(--accent2)",
+                    fontFamily: "'Space Mono', monospace",
+                    lineHeight: 1,
+                  }}
+                >
+                  {totalUniqueQueries}
+                </div>
+                <div style={{ fontSize: 11, color: "var(--muted)", marginTop: 3 }}>
+                  unique queries all-time
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Rationale */}
+          <div
+            style={{
+              background: "rgba(124,58,237,0.06)",
+              border: "1px solid rgba(124,58,237,0.25)",
+              borderRadius: 10,
+              padding: "16px 20px",
+              marginBottom: 20,
+              position: "relative",
+              overflow: "hidden",
+            }}
+          >
+            <div
+              style={{
+                position: "absolute", left: 0, top: 0, bottom: 0,
+                width: 4, background: "var(--accent2)",
+                borderRadius: "10px 0 0 10px",
+              }}
+            />
+            <div
+              style={{
+                fontSize: 11, fontWeight: 700, color: "var(--accent2)",
+                letterSpacing: "0.1em", marginBottom: 8,
+                fontFamily: "'Space Mono', monospace",
+              }}
+            >
+              ⚡ EVOLUTION RATIONALE
+            </div>
+            <p style={{ fontSize: 13, lineHeight: 1.7, color: "var(--text)", margin: 0 }}>
+              {searchEvolution.evolutionRationale}
+            </p>
+          </div>
+
+          {/* Query tag groups */}
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "1fr 1fr",
+              gap: 16,
+            }}
+          >
+            {/* New queries */}
+            {(searchEvolution.addQueries.length > 0) && (
+              <QueryTagGroup
+                label="✦ NEW THIS RUN"
+                queries={searchEvolution.addQueries}
+                color="#00ff88"
+                bg="rgba(0,255,136,0.08)"
+                border="rgba(0,255,136,0.25)"
+              />
+            )}
+
+            {/* Targeted queries */}
+            {(searchEvolution.hotVerticalQueries.length > 0 || searchEvolution.ecosystemQueries.length > 0) && (
+              <QueryTagGroup
+                label="🎯 TARGETED"
+                queries={[...searchEvolution.hotVerticalQueries, ...searchEvolution.ecosystemQueries]}
+                color="var(--accent2)"
+                bg="rgba(124,58,237,0.1)"
+                border="rgba(124,58,237,0.3)"
+              />
+            )}
+
+            {/* Saturating queries */}
+            {searchEvolution.saturatedQueries.length > 0 && (
+              <QueryTagGroup
+                label="⚠ SATURATING"
+                queries={searchEvolution.saturatedQueries}
+                color="#ffaa00"
+                bg="rgba(255,170,0,0.08)"
+                border="rgba(255,170,0,0.25)"
+              />
+            )}
+
+            {/* Retired queries */}
+            {searchEvolution.retireQueries.length > 0 && (
+              <QueryTagGroup
+                label="✕ RETIRED"
+                queries={searchEvolution.retireQueries}
+                color="var(--danger)"
+                bg="rgba(255,68,68,0.07)"
+                border="rgba(255,68,68,0.2)"
+                strikethrough
+              />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -985,6 +1222,63 @@ function IntelCard({
   );
 }
 
+function QueryTagGroup({
+  label,
+  queries,
+  color,
+  bg,
+  border,
+  strikethrough = false,
+}: {
+  label: string;
+  queries: string[];
+  color: string;
+  bg: string;
+  border: string;
+  strikethrough?: boolean;
+}) {
+  return (
+    <div
+      style={{
+        background: bg,
+        border: `1px solid ${border}`,
+        borderRadius: 10,
+        padding: "16px 18px",
+      }}
+    >
+      <div
+        style={{
+          fontSize: 11, fontWeight: 700, color,
+          letterSpacing: "0.1em", marginBottom: 12,
+          fontFamily: "'Space Mono', monospace",
+        }}
+      >
+        {label}
+      </div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+        {queries.map((q, i) => (
+          <span
+            key={i}
+            style={{
+              fontSize: 11,
+              background: bg,
+              border: `1px solid ${border}`,
+              borderRadius: 4,
+              padding: "3px 8px",
+              color,
+              fontFamily: "'Space Mono', monospace",
+              textDecoration: strikethrough ? "line-through" : "none",
+              opacity: strikethrough ? 0.75 : 1,
+            }}
+          >
+            {q}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 // ─── COMPONENTS ──────────────────────────────────────────────────────────────
 
 function Stat({ label, value, color }: { label: string; value: number; color: string }) {
@@ -1036,10 +1330,12 @@ function ReportCard({
   report,
   isSelected,
   onClick,
+  onDelete,
 }: {
   report: Report;
   isSelected: boolean;
   onClick: () => void;
+  onDelete: () => void;
 }) {
   const date = new Date(report.timestamp).toLocaleDateString("en-US", {
     month: "short",
@@ -1058,6 +1354,7 @@ function ReportCard({
         background: isSelected ? "var(--surface2)" : "transparent",
         borderLeft: isSelected ? "3px solid var(--accent)" : "3px solid transparent",
         transition: "all 0.15s",
+        position: "relative",
       }}
     >
       <div
@@ -1136,18 +1433,53 @@ function ReportCard({
       >
         {report.newsTitle}
       </div>
+      <button
+        onClick={(e) => { e.stopPropagation(); onDelete(); }}
+        title="Delete lead"
+        style={{
+          position: "absolute",
+          top: 12,
+          right: 12,
+          width: 22,
+          height: 22,
+          border: "1px solid transparent",
+          borderRadius: 4,
+          background: "transparent",
+          color: "var(--muted)",
+          cursor: "pointer",
+          fontSize: 14,
+          lineHeight: 1,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          opacity: 0,
+          transition: "opacity 0.15s, color 0.15s",
+        }}
+        onMouseEnter={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.opacity = "1";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--danger)";
+        }}
+        onMouseLeave={(e) => {
+          (e.currentTarget as HTMLButtonElement).style.opacity = "0";
+          (e.currentTarget as HTMLButtonElement).style.color = "var(--muted)";
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }
 
 // ─── REPORT DETAIL ───────────────────────────────────────────────────────────
 
-type PitchTab = "cold_email" | "linkedin_message" | "followup_email";
+type PitchTab = "cold_email" | "linkedin_message" | "followup_email" | "text_message" | "executive_brief";
 
 const PITCH_TABS: { key: PitchTab; label: string }[] = [
   { key: "cold_email", label: "Cold Email" },
   { key: "linkedin_message", label: "LinkedIn" },
   { key: "followup_email", label: "Follow-up" },
+  { key: "text_message", label: "Text" },
+  { key: "executive_brief", label: "Exec Brief" },
 ];
 
 function ReportDetail({ report }: { report: Report }) {

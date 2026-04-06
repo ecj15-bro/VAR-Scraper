@@ -4,7 +4,12 @@
 // It reads the live knowledge base produced by knowledge.ts to stay current.
 
 import { askClaude } from "@/lib/claude";
-import { getKnowledgeBase, KnowledgeBase } from "@/lib/store";
+import {
+  getKnowledgeBase,
+  KnowledgeBase,
+  SearchHistoryEntry,
+  EvolvedSearchParams,
+} from "@/lib/store";
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 
@@ -202,6 +207,8 @@ export async function scoreVARFit(
   const response = await askClaude(
     `You are the Cloudbox Partner Intelligence System. Evaluate whether a company is a strong candidate to become a Cloudbox VAR (Value Added Reseller). Use the Cloudbox knowledge base below as ground truth.
 
+Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
+
 ${knowledgeBlock}${liveBlock}
 
 Evaluate the company honestly and critically — a conservative score now saves wasted effort later. If you have limited data, score conservatively. Apply any SCORING RULES from the live intelligence section above.
@@ -268,6 +275,8 @@ export async function enrichPitchContext(
   const response = await askClaude(
     `You are the Cloudbox Pitch Intelligence System. Given a VAR candidate's profile and their fit assessment, generate the strategic pitch context that will make outreach most effective and human.
 
+Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
+
 ${knowledgeBlock}${liveBlock}
 
 Return ONLY a JSON object (no markdown, no explanation):
@@ -319,9 +328,8 @@ VAR fit assessment:
 // Detective and Salesman API calls are made.
 
 export function isWorthPursuing(varFitScore: VARFitScore): boolean {
-  if (varFitScore.overallScore < 5) return false;
   if (varFitScore.fitCategory === "avoid") return false;
-  if (varFitScore.redFlags.length > 2) return false;
+  if (varFitScore.overallScore < 5) return false;
   return true;
 }
 
@@ -368,4 +376,121 @@ export function generateBriefing(
     `Estimated deal size: ${dealSizeLabel}. ` +
     `Deployment complexity for their customers: ${varFitScore.deploymentEase}.${marketNote}`
   );
+}
+
+// ─── FUNCTION 5: evolveSearchParameters ──────────────────────────────────────
+// Analyzes search history and KB to evolve the query set each run.
+// Called by Watchtower before launching searches.
+
+export async function evolveSearchParameters(
+  currentQueries: string[],
+  searchHistory: SearchHistoryEntry[],
+  knowledgeBase: KnowledgeBase | null,
+  seenCompanies: string[]
+): Promise<EvolvedSearchParams> {
+  const knowledgeBlock = buildKnowledgeBlock();
+
+  // Summarize history: top performers and worst performers
+  const queryStats = new Map<string, { runs: number; totalResults: number; totalLeads: number; totalScore: number; companies: Set<string> }>();
+  for (const entry of searchHistory) {
+    const s = queryStats.get(entry.query) ?? { runs: 0, totalResults: 0, totalLeads: 0, totalScore: 0, companies: new Set() };
+    s.runs++;
+    s.totalResults += entry.resultsCount;
+    s.totalLeads += entry.qualifiedLeadsCount;
+    s.totalScore += entry.avgRelevanceScore;
+    entry.companiesFound.forEach((c) => s.companies.add(c));
+    queryStats.set(entry.query, s);
+  }
+
+  const sortedByLeads = Array.from(queryStats.entries()).sort((a, b) => b[1].totalLeads - a[1].totalLeads);
+  const topQueries = sortedByLeads.slice(0, 10).map(([q, s]) =>
+    `"${q}" — ${s.totalLeads} qualified leads over ${s.runs} runs, avg ${s.totalResults > 0 ? Math.round(s.totalLeads / s.runs * 10) / 10 : 0} leads/run`
+  ).join("\n");
+
+  const zeroQueries = sortedByLeads.slice(-10).filter(([, s]) => s.totalLeads === 0).map(([q, s]) =>
+    `"${q}" — 0 leads over ${s.runs} runs (${s.totalResults} total raw results)`
+  ).join("\n");
+
+  const saturatedCandidates = Array.from(queryStats.entries())
+    .filter(([, s]) => s.companies.size > 0 && s.runs >= 3)
+    .map(([q, s]) => ({ q, companies: Array.from(s.companies), runs: s.runs }))
+    .filter(({ companies, runs }) => companies.length > 0 && companies.length / runs < 0.5)
+    .map(({ q, companies }) => `"${q}" — repeatedly finds: ${companies.slice(0, 3).join(", ")}`)
+    .join("\n");
+
+  const kbBlock = knowledgeBase
+    ? `CURRENT KNOWLEDGE BASE:
+Hot verticals: ${knowledgeBase.hotVerticals.join(", ") || "none yet"}
+Cold verticals: ${knowledgeBase.coldVerticals.join(", ") || "none yet"}
+Executive insights: ${knowledgeBase.lastInsights}
+Partner ecosystem signals: ${knowledgeBase.partnerEcosystem.slice(0, 3).join("; ") || "none"}`
+    : "No knowledge base yet — generate queries based on Cloudbox product knowledge only.";
+
+  const recentSeenSample = seenCompanies.slice(-30).join(", ") || "none yet";
+
+  const response = await askClaude(
+    `You are a search strategy analyst for Cloudbox's VAR prospecting pipeline. Your job is to evolve the search query set to find better leads over time.
+
+Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
+
+${knowledgeBlock}
+
+${kbBlock}
+
+RECENTLY PROCESSED COMPANIES (do not target these again):
+${recentSeenSample}
+
+PERFORMANCE DATA (${searchHistory.length} total query runs in the last 90 days):
+
+Best performing queries (most qualified leads):
+${topQueries || "No history yet — this may be the first run."}
+
+Zero-result queries (consistently no qualified leads):
+${zeroQueries || "None identified yet."}
+
+Queries showing saturation (same companies repeatedly):
+${saturatedCandidates || "None identified yet."}
+
+CURRENT ACTIVE QUERIES (${currentQueries.length} total):
+${currentQueries.map((q) => `"${q}"`).join("\n")}
+
+YOUR TASK:
+1. RETIRE queries that have run 3+ times and produced zero qualified leads — these are wasted API calls.
+2. Generate 5-10 NEW queries targeting angles not yet covered (check the current query list for gaps).
+3. Generate 2-3 HOT VERTICAL queries directly tied to the hot verticals in the knowledge base.
+4. Generate 1-2 ECOSYSTEM queries targeting partner ecosystem companies (NetSuite resellers, Fishbowl integrators, Cin7 partners, Ingram Micro VARs, etc.).
+5. Flag any query showing saturation (same companies every run) as saturated — still run them but note it.
+
+Query writing rules:
+- Queries should be 4-10 words, natural search engine style
+- Include year (2026) where relevant to get fresh results
+- Target specific business types, not generic terms
+- Focus on companies that distribute or resell physical goods tech
+
+Return ONLY a JSON object (no markdown):
+{
+  "retireQueries": ["exact query string to retire", ...],
+  "addQueries": ["new query 1", ..., "new query 10"],
+  "hotVerticalQueries": ["query targeting hot vertical 1", ...],
+  "ecosystemQueries": ["ecosystem query 1", "ecosystem query 2"],
+  "saturatedQueries": ["saturated query 1", ...],
+  "evolutionRationale": "2-3 sentences explaining what changed and why, no em dashes"
+}`,
+    `Evolve the search parameters based on the data above. Current query count: ${currentQueries.length}. History entries: ${searchHistory.length}.`
+  );
+
+  try {
+    const cleaned = response.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleaned) as EvolvedSearchParams;
+  } catch {
+    console.error("[Context] Failed to parse evolveSearchParameters response");
+    return {
+      retireQueries: [],
+      addQueries: [],
+      hotVerticalQueries: [],
+      ecosystemQueries: [],
+      saturatedQueries: [],
+      evolutionRationale: "Search evolution parsing failed — using current query set unchanged.",
+    };
+  }
 }

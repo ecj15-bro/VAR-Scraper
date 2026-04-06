@@ -206,6 +206,8 @@ async function synthesizeKnowledgeBase(
   const response = await askClaude(
     `You are a Cloudbox market intelligence analyst. Your job is to synthesize web research into a living intelligence brief that helps the Cloudbox sales team find and target VAR (Value Added Reseller) partners more effectively.
 
+Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
+
 Cloudbox context: Cloudbox offers the world's first real-time weight-based inventory management solution using IoT smart scales. It sells through VARs and resellers who serve warehouses, manufacturers, distributors, and physical goods businesses.
 
 ${prevSummary}

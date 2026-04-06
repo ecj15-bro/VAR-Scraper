@@ -7,7 +7,7 @@
 
 import { searchWeb, searchNews, SearchResult } from "./search";
 import { askClaude } from "./claude";
-import { sendToTeams, VARReport } from "./teams";
+import { sendReport, VARReport } from "./email";
 import { hasSeenCompany, markCompanySeen, saveReport } from "./store";
 
 // ─── STAGE 1: WATCHTOWER ────────────────────────────────────────────────────
@@ -235,7 +235,7 @@ export async function runPipeline(options?: { dryRun?: boolean }): Promise<Pipel
 
       // Send to Teams (unless dry run)
       if (!options?.dryRun) {
-        await sendToTeams(report);
+        await sendReport(report);
       }
 
       result.reports.push(report);

@@ -5,13 +5,20 @@ node_modules/
 .next/
 out/
 
-# env files
+# env files — NEVER commit these, they contain API keys
 .env
 .env.local
 .env.*.local
 
+# temp storage (local pipeline run data)
+/tmp/
+
 # build artifacts
 tsconfig.tsbuildinfo
 
+# task runner output
+*.output
+
 # misc
 .DS_Store
+Thumbs.db
