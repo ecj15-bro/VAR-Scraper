@@ -186,6 +186,14 @@ export default function Dashboard() {
     }
   };
 
+  const exportCSV = (format: "csv" | "sheets") => {
+    window.location.href = `/api/export/csv?format=${format}`;
+  };
+
+  const exportXLSX = () => {
+    window.location.href = "/api/export/xlsx";
+  };
+
   const refreshKnowledge = async () => {
     setKbRefreshing(true);
     setKbRefreshError(false);
@@ -260,6 +268,58 @@ export default function Dashboard() {
             >
               Last run: {lastRun}
             </span>
+          )}
+          {reports.length > 0 && (
+            <>
+              <button
+                onClick={exportXLSX}
+                title="Download Excel workbook with styled headers, fit color-coding, and summary sheet"
+                style={{
+                  padding: "8px 16px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: "var(--muted)",
+                  cursor: "pointer",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 12,
+                }}
+              >
+                ⬇ XLSX
+              </button>
+              <button
+                onClick={() => exportCSV("csv")}
+                title="Download CSV"
+                style={{
+                  padding: "8px 16px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: "var(--muted)",
+                  cursor: "pointer",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 12,
+                }}
+              >
+                ⬇ CSV
+              </button>
+              <button
+                onClick={() => exportCSV("sheets")}
+                title="Download Google Sheets compatible CSV (UTF-8 BOM)"
+                style={{
+                  padding: "8px 16px",
+                  border: "1px solid var(--border)",
+                  borderRadius: 6,
+                  background: "transparent",
+                  color: "var(--muted)",
+                  cursor: "pointer",
+                  fontFamily: "'Space Mono', monospace",
+                  fontSize: 12,
+                }}
+              >
+                ⬇ Sheets
+              </button>
+            </>
           )}
           <button
             onClick={() => runPipeline(true)}
@@ -337,42 +397,27 @@ export default function Dashboard() {
       {status === "done" && runResult && (
         <div
           style={{
-            padding: "12px 32px",
-            background: "rgba(0,255,136,0.05)",
+            padding: "14px 32px",
+            background: "rgba(0,255,136,0.04)",
             borderBottom: "1px solid rgba(0,255,136,0.15)",
             display: "flex",
-            gap: 24,
+            gap: 10,
             flexWrap: "wrap",
             alignItems: "center",
           }}
         >
-          <Stat label="Reports Generated" value={runResult.processed} color="var(--accent)" />
-          <Stat label="Skipped" value={runResult.skipped} color="var(--muted)" />
+          <span style={{ fontSize: 11, color: "var(--accent)", fontFamily: "'Space Mono', monospace", fontWeight: 700, marginRight: 4 }}>
+            ✓ RUN COMPLETE
+          </span>
+          <StatCard label="Reports" value={runResult.processed} color="var(--accent)" highlight />
+          <StatCard label="Leads Found" value={runResult.totalLeadsFound ?? 0} color="var(--warning)" />
+          <StatCard label="Skipped" value={runResult.skipped} color="var(--muted)" />
           {runResult.contextFiltered > 0 && (
-            <Stat label="Context Filtered" value={runResult.contextFiltered} color="var(--warning)" />
+            <StatCard label="Filtered" value={runResult.contextFiltered} color="var(--warning)" />
           )}
-          <Stat
-            label="Errors"
-            value={runResult.errors}
-            color={runResult.errors > 0 ? "var(--danger)" : "var(--muted)"}
-          />
-          {runResult.totalLeadsFound !== undefined && (
-            <Stat label="Leads Found" value={runResult.totalLeadsFound} color="var(--warning)" />
-          )}
+          <StatCard label="Errors" value={runResult.errors} color={runResult.errors > 0 ? "var(--danger)" : "var(--muted)"} />
           {!!runResult.avgRelevanceScore && (
-            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span
-                style={{
-                  fontFamily: "'Space Mono', monospace",
-                  fontSize: 20,
-                  fontWeight: 700,
-                  color: "var(--warning)",
-                }}
-              >
-                {runResult.avgRelevanceScore}
-              </span>
-              <span style={{ fontSize: 12, color: "var(--muted)" }}>Avg Relevance</span>
-            </div>
+            <StatCard label="Avg Relevance" value={`${runResult.avgRelevanceScore}/10`} color="var(--warning)" />
           )}
         </div>
       )}
@@ -1281,20 +1326,44 @@ function QueryTagGroup({
 
 // ─── COMPONENTS ──────────────────────────────────────────────────────────────
 
-function Stat({ label, value, color }: { label: string; value: number; color: string }) {
+function StatCard({
+  label,
+  value,
+  color,
+  highlight = false,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+  highlight?: boolean;
+}) {
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+    <div
+      style={{
+        display: "flex",
+        flexDirection: "column",
+        alignItems: "center",
+        background: highlight ? `${color}12` : "var(--surface)",
+        border: `1px solid ${highlight ? `${color}30` : "var(--border)"}`,
+        borderRadius: 8,
+        padding: "6px 14px",
+        minWidth: 64,
+      }}
+    >
       <span
         style={{
           fontFamily: "'Space Mono', monospace",
-          fontSize: 20,
+          fontSize: 18,
           fontWeight: 700,
           color,
+          lineHeight: 1.2,
         }}
       >
         {value}
       </span>
-      <span style={{ fontSize: 12, color: "var(--muted)" }}>{label}</span>
+      <span style={{ fontSize: 10, color: "var(--muted)", marginTop: 2, whiteSpace: "nowrap" }}>
+        {label}
+      </span>
     </div>
   );
 }
@@ -1485,11 +1554,15 @@ const PITCH_TABS: { key: PitchTab; label: string }[] = [
 function ReportDetail({ report }: { report: Report }) {
   const [copied, setCopied] = useState(false);
   const [activeTab, setActiveTab] = useState<PitchTab>("cold_email");
+  const [pdfLoading, setPdfLoading] = useState(false);
+  const [docxLoading, setDocxLoading] = useState(false);
   const reportId = report.id;
 
   useEffect(() => {
     setActiveTab("cold_email");
     setCopied(false);
+    setPdfLoading(false);
+    setDocxLoading(false);
   }, [reportId]);
 
   const activePitch = report.pitchVariants?.[activeTab] ?? report.pitch;
@@ -1501,6 +1574,38 @@ function ReportDetail({ report }: { report: Report }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const triggerDownload = async (
+    endpoint: string,
+    ext: string,
+    setLoading: (v: boolean) => void
+  ) => {
+    setLoading(true);
+    try {
+      const res = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: report.id }),
+      });
+      if (!res.ok) throw new Error("Export failed");
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      const dateStr = new Date().toISOString().slice(0, 10);
+      const safeName = report.companyName.replace(/[^a-zA-Z0-9-]/g, "-").replace(/-+/g, "-");
+      a.href = url;
+      a.download = `VAR-${safeName}-${dateStr}.${ext}`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // silently fail — user will notice no download
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const downloadPDF  = () => triggerDownload("/api/export/pdf",  "pdf",  setPdfLoading);
+  const downloadDOCX = () => triggerDownload("/api/export/docx", "docx", setDocxLoading);
 
   return (
     <div style={{ padding: "32px 40px", maxWidth: 820 }}>
@@ -1636,8 +1741,61 @@ function ReportDetail({ report }: { report: Report }) {
           </div>
         )}
 
-        <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 8 }}>
-          Detected {new Date(report.timestamp).toLocaleString()}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            marginTop: 10,
+          }}
+        >
+          <div style={{ fontSize: 12, color: "var(--muted)" }}>
+            Detected {new Date(report.timestamp).toLocaleString()}
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button
+              onClick={downloadDOCX}
+              disabled={docxLoading}
+              style={{
+                padding: "6px 16px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "transparent",
+                color: docxLoading ? "var(--muted)" : "var(--text)",
+                cursor: docxLoading ? "not-allowed" : "pointer",
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {docxLoading ? (
+                <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◌</span>
+              ) : "⬇"} {docxLoading ? "GENERATING..." : "DOCX"}
+            </button>
+            <button
+              onClick={downloadPDF}
+              disabled={pdfLoading}
+              style={{
+                padding: "6px 16px",
+                border: "1px solid var(--border)",
+                borderRadius: 6,
+                background: "transparent",
+                color: pdfLoading ? "var(--muted)" : "var(--text)",
+                cursor: pdfLoading ? "not-allowed" : "pointer",
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 11,
+                display: "flex",
+                alignItems: "center",
+                gap: 6,
+              }}
+            >
+              {pdfLoading ? (
+                <span style={{ display: "inline-block", animation: "spin 1s linear infinite" }}>◌</span>
+              ) : "⬇"} {pdfLoading ? "GENERATING..." : "PDF"}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1920,9 +2078,36 @@ function ReportDetail({ report }: { report: Report }) {
           </div>
         )}
 
-        <p style={{ fontSize: 15, lineHeight: 1.8, color: "var(--text)", margin: 0 }}>
-          {activePitch}
-        </p>
+        <div
+          style={{
+            position: "relative",
+            paddingLeft: 16,
+          }}
+        >
+          <div
+            style={{
+              position: "absolute",
+              left: 0,
+              top: 0,
+              bottom: 0,
+              width: 2,
+              background: "rgba(0,255,136,0.35)",
+              borderRadius: 2,
+            }}
+          />
+          <p
+            style={{
+              fontSize: 14,
+              lineHeight: 1.9,
+              color: "var(--text)",
+              margin: 0,
+              whiteSpace: "pre-wrap",
+              letterSpacing: "0.01em",
+            }}
+          >
+            {activePitch}
+          </p>
+        </div>
       </div>
     </div>
   );
@@ -1941,14 +2126,32 @@ function Section({ title, children }: { title: string; children: React.ReactNode
     >
       <div
         style={{
-          fontSize: 12,
-          fontWeight: 700,
-          color: "var(--muted)",
-          letterSpacing: "0.1em",
-          marginBottom: 12,
+          display: "flex",
+          alignItems: "center",
+          gap: 8,
+          marginBottom: 14,
         }}
       >
-        {title}
+        <div
+          style={{
+            width: 3,
+            height: 14,
+            background: "var(--accent)",
+            borderRadius: 2,
+            opacity: 0.5,
+            flexShrink: 0,
+          }}
+        />
+        <div
+          style={{
+            fontSize: 11,
+            fontWeight: 700,
+            color: "var(--muted)",
+            letterSpacing: "0.12em",
+          }}
+        >
+          {title}
+        </div>
       </div>
       {children}
     </div>

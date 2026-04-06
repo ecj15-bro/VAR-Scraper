@@ -8,7 +8,12 @@
       "Bash(npx tsx:*)",
       "Bash(ls:*)",
       "Bash(node -e ':*)",
-      "Bash(node:*)"
+      "Bash(node:*)",
+      "Bash(curl -s -X POST \"http://localhost:3001/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test.pdf)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(npm run:*)",
+      "Bash(curl -s -X POST \"http://localhost:3001/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test2.pdf)",
+      "Bash(curl -s -X POST \"http://localhost:3003/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test2.pdf)"
     ]
   }
 }
