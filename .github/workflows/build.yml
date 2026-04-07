@@ -1,0 +1,107 @@
+name: Build and Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  # ─── JOB 1: Windows .exe + .zip ─────────────────────────────────────────────
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Build Windows app
+        run: npx electron-builder --win --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          WIN_CSC_LINK: ""
+
+      - name: Upload Windows artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: |
+            dist/*.exe
+            dist/*.zip
+
+  # ─── JOB 2: Mac .dmg ────────────────────────────────────────────────────────
+  build-mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Convert icon.png to icon.icns
+        run: |
+          mkdir -p electron/icon.iconset
+          sips -z 16 16   electron/icon.png --out electron/icon.iconset/icon_16x16.png
+          sips -z 32 32   electron/icon.png --out electron/icon.iconset/icon_16x16@2x.png
+          sips -z 32 32   electron/icon.png --out electron/icon.iconset/icon_32x32.png
+          sips -z 64 64   electron/icon.png --out electron/icon.iconset/icon_32x32@2x.png
+          sips -z 128 128 electron/icon.png --out electron/icon.iconset/icon_128x128.png
+          sips -z 256 256 electron/icon.png --out electron/icon.iconset/icon_128x128@2x.png
+          sips -z 256 256 electron/icon.png --out electron/icon.iconset/icon_256x256.png
+          sips -z 512 512 electron/icon.png --out electron/icon.iconset/icon_256x256@2x.png
+          sips -z 512 512 electron/icon.png --out electron/icon.iconset/icon_512x512.png
+          iconutil -c icns electron/icon.iconset -o electron/icon.icns
+
+      - name: Build Next.js
+        run: npm run build
+
+      - name: Build Mac app
+        run: npx electron-builder --mac --publish never
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Upload Mac artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: mac-build
+          path: dist/*.dmg
+
+  # ─── JOB 3: Create GitHub Release ───────────────────────────────────────────
+  create-release:
+    runs-on: ubuntu-latest
+    needs: [build-windows, build-mac]
+    steps:
+      - name: Download Windows artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: release-files
+
+      - name: Download Mac artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: mac-build
+          path: release-files
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: "Cloudbox VAR Hunter ${{ github.ref_name }}"
+          body: "Download the installer for your platform below."
+          files: release-files/*
