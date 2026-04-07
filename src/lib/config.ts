@@ -58,8 +58,8 @@ export async function getConfig(): Promise<AppConfig> {
     };
   }
 
-  // Vercel KV web mode — merge per-session KV settings over env vars
-  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+  // Upstash Redis web mode — merge per-session KV settings over env vars
+  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     try {
       const { getSettings } = await import("./store");
       const { getCurrentSessionId } = await import("./session");

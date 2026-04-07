@@ -25,3 +25,5 @@ Thumbs.db
 
 # electron build output
 dist/
+
+.vercel

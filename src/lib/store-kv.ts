@@ -1,8 +1,8 @@
-// src/lib/store-kv.ts — Vercel KV-backed store for web/Vercel deployment.
-// Dynamically imported by store.ts only when KV env vars are present,
-// so @vercel/kv is never loaded in Electron.
+// src/lib/store-kv.ts — Upstash Redis-backed store for web/Vercel deployment.
+// Dynamically imported by store.ts only when UPSTASH_REDIS_REST_URL is set,
+// so @upstash/redis is never loaded in Electron.
 
-import { kv } from "@vercel/kv";
+import { Redis } from "@upstash/redis";
 import type {
   ReportEntry,
   SearchHistoryEntry,
@@ -13,6 +13,11 @@ import type {
   WatchtowerConfig,
 } from "./store";
 
+const redis = new Redis({
+  url: process.env.UPSTASH_REDIS_REST_URL!,
+  token: process.env.UPSTASH_REDIS_REST_TOKEN!,
+});
+
 // ─── KEY HELPER ───────────────────────────────────────────────────────────────
 
 function k(sessionId: string, name: string): string {
@@ -22,7 +27,7 @@ function k(sessionId: string, name: string): string {
 // ─── REPORTS ─────────────────────────────────────────────────────────────────
 
 export async function kvGetReports(sessionId: string): Promise<ReportEntry[]> {
-  return (await kv.get<ReportEntry[]>(k(sessionId, "reports"))) ?? [];
+  return (await redis.get<ReportEntry[]>(k(sessionId, "reports"))) ?? [];
 }
 
 export async function kvSaveReport(
@@ -35,28 +40,28 @@ export async function kvSaveReport(
     id: crypto.randomUUID(),
     timestamp: new Date().toISOString(),
   });
-  await kv.set(k(sessionId, "reports"), reports.slice(0, 100));
+  await redis.set(k(sessionId, "reports"), reports.slice(0, 100));
 }
 
 export async function kvDeleteReport(sessionId: string, id: string): Promise<boolean> {
   const reports = await kvGetReports(sessionId);
   const filtered = reports.filter((r) => r.id !== id);
   if (filtered.length === reports.length) return false;
-  await kv.set(k(sessionId, "reports"), filtered);
+  await redis.set(k(sessionId, "reports"), filtered);
   return true;
 }
 
 export async function kvClearReports(sessionId: string): Promise<void> {
   await Promise.all([
-    kv.set(k(sessionId, "reports"), []),
-    kv.set(k(sessionId, "seen-companies"), []),
+    redis.set(k(sessionId, "reports"), []),
+    redis.set(k(sessionId, "seen-companies"), []),
   ]);
 }
 
 // ─── SEEN COMPANIES ───────────────────────────────────────────────────────────
 
 export async function kvGetSeenCompanies(sessionId: string): Promise<string[]> {
-  return (await kv.get<string[]>(k(sessionId, "seen-companies"))) ?? [];
+  return (await redis.get<string[]>(k(sessionId, "seen-companies"))) ?? [];
 }
 
 export async function kvHasSeenCompany(sessionId: string, name: string): Promise<boolean> {
@@ -69,14 +74,14 @@ export async function kvMarkCompanySeen(sessionId: string, name: string): Promis
   const key = name.toLowerCase().trim();
   if (!seen.includes(key)) {
     seen.push(key);
-    await kv.set(k(sessionId, "seen-companies"), seen);
+    await redis.set(k(sessionId, "seen-companies"), seen);
   }
 }
 
 // ─── SEARCH HISTORY ───────────────────────────────────────────────────────────
 
 export async function kvGetSearchHistory(sessionId: string): Promise<SearchHistoryEntry[]> {
-  const history = (await kv.get<SearchHistoryEntry[]>(k(sessionId, "search-history"))) ?? [];
+  const history = (await redis.get<SearchHistoryEntry[]>(k(sessionId, "search-history"))) ?? [];
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   return history.filter((e) => e.timestamp >= cutoff);
 }
@@ -85,11 +90,11 @@ export async function kvSaveSearchHistory(
   sessionId: string,
   entry: SearchHistoryEntry
 ): Promise<void> {
-  const history = (await kv.get<SearchHistoryEntry[]>(k(sessionId, "search-history"))) ?? [];
+  const history = (await redis.get<SearchHistoryEntry[]>(k(sessionId, "search-history"))) ?? [];
   history.push(entry);
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
   const pruned = history.filter((e) => e.timestamp >= cutoff).slice(-1000);
-  await kv.set(k(sessionId, "search-history"), pruned);
+  await redis.set(k(sessionId, "search-history"), pruned);
 }
 
 export async function kvGetUniqueQueryCount(sessionId: string): Promise<number> {
@@ -103,23 +108,23 @@ export async function kvSaveSearchEvolution(
   sessionId: string,
   evolution: EvolvedSearchParams
 ): Promise<void> {
-  await kv.set(k(sessionId, "search-evolution"), evolution);
+  await redis.set(k(sessionId, "search-evolution"), evolution);
 }
 
 export async function kvGetSearchEvolution(
   sessionId: string
 ): Promise<EvolvedSearchParams | null> {
-  return kv.get<EvolvedSearchParams>(k(sessionId, "search-evolution"));
+  return redis.get<EvolvedSearchParams>(k(sessionId, "search-evolution"));
 }
 
 // ─── KNOWLEDGE BASE ───────────────────────────────────────────────────────────
 
 export async function kvSaveKnowledgeBase(sessionId: string, kb: KnowledgeBase): Promise<void> {
-  await kv.set(k(sessionId, "knowledge-base"), kb);
+  await redis.set(k(sessionId, "knowledge-base"), kb);
 }
 
 export async function kvGetKnowledgeBase(sessionId: string): Promise<KnowledgeBase | null> {
-  return kv.get<KnowledgeBase>(k(sessionId, "knowledge-base"));
+  return redis.get<KnowledgeBase>(k(sessionId, "knowledge-base"));
 }
 
 // ─── BRAND CONFIG ─────────────────────────────────────────────────────────────
@@ -127,16 +132,16 @@ export async function kvGetKnowledgeBase(sessionId: string): Promise<KnowledgeBa
 export async function kvSaveBrandConfig(sessionId: string, brand: BrandConfig): Promise<void> {
   // Split logo into a separate key to avoid bloating the main brand fetch
   const { logoDataUrl, ...rest } = brand;
-  await kv.set(k(sessionId, "brand-config"), rest);
+  await redis.set(k(sessionId, "brand-config"), rest);
   if (logoDataUrl !== undefined) {
-    await kv.set(k(sessionId, "brand-logo"), logoDataUrl);
+    await redis.set(k(sessionId, "brand-logo"), logoDataUrl);
   }
 }
 
 export async function kvGetBrandConfig(sessionId: string): Promise<BrandConfig | null> {
-  const brand = await kv.get<Omit<BrandConfig, "logoDataUrl">>(k(sessionId, "brand-config"));
+  const brand = await redis.get<Omit<BrandConfig, "logoDataUrl">>(k(sessionId, "brand-config"));
   if (!brand) return null;
-  const logoDataUrl = (await kv.get<string>(k(sessionId, "brand-logo"))) ?? undefined;
+  const logoDataUrl = (await redis.get<string>(k(sessionId, "brand-logo"))) ?? undefined;
   return { ...brand, logoDataUrl };
 }
 
@@ -146,11 +151,11 @@ export async function kvSaveBusinessProfile(
   sessionId: string,
   profile: BusinessProfile
 ): Promise<void> {
-  await kv.set(k(sessionId, "business-profile"), profile);
+  await redis.set(k(sessionId, "business-profile"), profile);
 }
 
 export async function kvGetBusinessProfile(sessionId: string): Promise<BusinessProfile | null> {
-  return kv.get<BusinessProfile>(k(sessionId, "business-profile"));
+  return redis.get<BusinessProfile>(k(sessionId, "business-profile"));
 }
 
 // ─── WATCHTOWER CONFIG ────────────────────────────────────────────────────────
@@ -159,23 +164,23 @@ export async function kvSaveWatchtowerConfig(
   sessionId: string,
   config: WatchtowerConfig
 ): Promise<void> {
-  await kv.set(k(sessionId, "watchtower-config"), config);
+  await redis.set(k(sessionId, "watchtower-config"), config);
 }
 
 export async function kvGetWatchtowerConfig(sessionId: string): Promise<WatchtowerConfig | null> {
-  return kv.get<WatchtowerConfig>(k(sessionId, "watchtower-config"));
+  return redis.get<WatchtowerConfig>(k(sessionId, "watchtower-config"));
 }
 
-// ─── SETTINGS (BYOK — Bring Your Own Key) ────────────────────────────────────
+// ─── SETTINGS (BYOK) ─────────────────────────────────────────────────────────
 
 export async function kvSaveSettings(
   sessionId: string,
   settings: Record<string, string>
 ): Promise<void> {
-  const existing = (await kv.get<Record<string, string>>(k(sessionId, "settings"))) ?? {};
-  await kv.set(k(sessionId, "settings"), { ...existing, ...settings });
+  const existing = (await redis.get<Record<string, string>>(k(sessionId, "settings"))) ?? {};
+  await redis.set(k(sessionId, "settings"), { ...existing, ...settings });
 }
 
 export async function kvGetSettings(sessionId: string): Promise<Record<string, string>> {
-  return (await kv.get<Record<string, string>>(k(sessionId, "settings"))) ?? {};
+  return (await redis.get<Record<string, string>>(k(sessionId, "settings"))) ?? {};
 }
