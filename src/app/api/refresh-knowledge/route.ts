@@ -4,10 +4,10 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runKnowledgeRefresh } from "@/agents/knowledge";
+import { extractSessionId, runWithSession } from "@/lib/session";
 
 export const maxDuration = 300;
 
-// Vercel cron hits this via GET with the Authorization header
 export async function GET(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
 
   try {
     console.log("📚 Knowledge refresh cron started (6am UTC)");
-    const kb = await runKnowledgeRefresh();
+    const kb = await runWithSession("cron-default", () => runKnowledgeRefresh());
     console.log(`📚 Knowledge refresh complete. Last insights: ${kb.lastInsights.slice(0, 80)}...`);
     return NextResponse.json({ success: true, lastRefreshed: kb.lastRefreshed });
   } catch (e: unknown) {
@@ -26,11 +26,11 @@ export async function GET(req: NextRequest) {
   }
 }
 
-// Dashboard "Refresh Now" button hits this via POST
-export async function POST(_req: NextRequest) {
+export async function POST(req: NextRequest) {
+  const sessionId = extractSessionId(req);
   try {
     console.log("📚 Manual knowledge refresh triggered from dashboard");
-    const kb = await runKnowledgeRefresh();
+    const kb = await runWithSession(sessionId, () => runKnowledgeRefresh());
     return NextResponse.json({ success: true, lastRefreshed: kb.lastRefreshed, knowledgeBase: kb });
   } catch (e: unknown) {
     const message = e instanceof Error ? e.message : "Unknown error";

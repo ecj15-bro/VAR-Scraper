@@ -2,11 +2,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { runOrchestrator } from "@/agents/orchestrator";
+import { runWithSession } from "@/lib/session";
 
-export const maxDuration = 300; // 5 min timeout
+export const maxDuration = 300;
 
 export async function GET(req: NextRequest) {
-  // Verify this is called by Vercel Cron (not a random request)
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -14,7 +14,8 @@ export async function GET(req: NextRequest) {
 
   try {
     console.log("⏰ Daily VAR Hunter cron job started");
-    const result = await runOrchestrator();
+    // Cron runs in a shared session — data accumulates across all cron runs
+    const result = await runWithSession("cron-default", () => runOrchestrator());
     console.log(`✅ Cron complete: ${result.processed} reports generated`);
     return NextResponse.json({ success: true, ...result });
   } catch (e: unknown) {

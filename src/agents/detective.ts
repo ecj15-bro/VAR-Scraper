@@ -163,8 +163,7 @@ async function runDetectiveSubagent(
 export async function runDetective(leads: ScoredLead[]): Promise<DetectiveResult[]> {
   console.log(`🕵️ DETECTIVE: Processing ${leads.length} leads (max 3 concurrent)...`);
 
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+  const [brand, profile] = await Promise.all([getBrandConfig(), getBusinessProfile()]);
   const productSummary = profile?.whatYouSell
     ? `We are looking for VAR partners for: ${profile.whatYouSell}`
     : "We offer the world's first real-time weight-based inventory management solution using IoT smart scales.";

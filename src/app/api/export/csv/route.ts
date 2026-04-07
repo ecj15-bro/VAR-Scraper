@@ -2,6 +2,7 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { getReports, ReportEntry } from "@/lib/store";
+import { extractSessionId, runWithSession } from "@/lib/session";
 
 // ─── CSV HELPERS ──────────────────────────────────────────────────────────────
 
@@ -74,8 +75,9 @@ function reportToRow(r: ReportEntry): string {
 
 // GET /api/export/csv?format=csv (default) | ?format=sheets
 export async function GET(req: NextRequest) {
+  const sessionId = extractSessionId(req);
   try {
-    const reports = getReports();
+    const reports = await runWithSession(sessionId, () => getReports());
     if (reports.length === 0) {
       return NextResponse.json({ error: "No reports to export" }, { status: 404 });
     }

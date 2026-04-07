@@ -35,18 +35,14 @@ export interface PitchContext {
   avoidMentioning: string[];
 }
 
-// Minimal subject needed by generateBriefing — avoids importing SalesmanResult (circular dep)
 interface BriefingSubject {
   companyName: string;
   decisionMaker: string;
 }
 
-// Re-export for use in other modules
 export type { WatchtowerConfig, WatchtowerSearchCategory };
 
 // ─── CLOUDBOX DEFAULTS ───────────────────────────────────────────────────────
-// Used when no business profile has been configured. Keeps existing Cloudbox
-// behaviour completely unchanged.
 
 const CLOUDBOX_KNOWLEDGE = {
   product: {
@@ -142,17 +138,11 @@ STRATEGIC TECHNOLOGY PARTNERS (working with any of these = strong signal):
 - ${CLOUDBOX_KNOWLEDGE.strategicPartners.note}`;
 }
 
-/**
- * Builds the product knowledge block for use in Claude prompts.
- * If a business profile exists, it uses that; otherwise falls back to hardcoded Cloudbox defaults.
- */
 function buildKnowledgeBlock(profile: BusinessProfile | null, companyName: string): string {
   const profileBlock = buildProductKnowledgeBlock(profile);
   return profileBlock || buildDefaultKnowledgeBlock(companyName);
 }
 
-// Builds the live intelligence block from the most recent knowledge refresh.
-// Returns empty string when no knowledge base exists yet (first run).
 function buildLiveIntelligenceBlock(kb: KnowledgeBase, companyName: string): string {
   const age = Math.round(
     (Date.now() - new Date(kb.lastRefreshed).getTime()) / 3600000
@@ -215,10 +205,12 @@ export async function scoreVARFit(
   personProfile: string,
   newsContext: string
 ): Promise<VARFitScore> {
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+  const [brand, profile, kb] = await Promise.all([
+    getBrandConfig(),
+    getBusinessProfile(),
+    getKnowledgeBase(),
+  ]);
   const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
-  const kb = getKnowledgeBase();
   const liveBlock = kb ? buildLiveIntelligenceBlock(kb, brand.companyName) : "";
 
   const response = await askClaude(
@@ -283,10 +275,12 @@ export async function enrichPitchContext(
   personProfile: string,
   varFitScore: VARFitScore
 ): Promise<PitchContext> {
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+  const [brand, profile, kb] = await Promise.all([
+    getBrandConfig(),
+    getBusinessProfile(),
+    getKnowledgeBase(),
+  ]);
   const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
-  const kb = getKnowledgeBase();
   const liveBlock = kb ? buildLiveIntelligenceBlock(kb, brand.companyName) : "";
 
   const response = await askClaude(
@@ -327,6 +321,7 @@ VAR fit assessment:
     return JSON.parse(cleaned) as PitchContext;
   } catch {
     console.error(`[Context] Failed to parse enrichPitchContext for ${companyName}`);
+    const brand = await getBrandConfig();
     return {
       hookAngle: `${companyName}'s customers could eliminate manual processes entirely with ${brand.companyName}`,
       painPoints: [
@@ -350,12 +345,13 @@ export function isWorthPursuing(varFitScore: VARFitScore): boolean {
 
 // ─── FUNCTION 4: generateBriefing ────────────────────────────────────────────
 
-export function generateBriefing(
+export async function generateBriefing(
   subject: BriefingSubject,
   varFitScore: VARFitScore,
   pitchContext: PitchContext
-): string {
-  const brand = getBrandConfig();
+): Promise<string> {
+  const [brand, kb] = await Promise.all([getBrandConfig(), getKnowledgeBase()]);
+
   const topReason =
     varFitScore.fitReasons.length > 0
       ? varFitScore.fitReasons[0]
@@ -372,12 +368,9 @@ export function generateBriefing(
       ? "mid-market ($10k–$100k ARR)"
       : "enterprise ($100k+ ARR)";
 
-  // Pull in live market context if the KB is fresh (< 48 hours old)
-  const kb = getKnowledgeBase();
   let marketNote = "";
   if (kb) {
-    const ageHours =
-      (Date.now() - new Date(kb.lastRefreshed).getTime()) / 3600000;
+    const ageHours = (Date.now() - new Date(kb.lastRefreshed).getTime()) / 3600000;
     if (ageHours < 48 && kb.lastInsights) {
       marketNote = ` Market context: ${kb.lastInsights.split(".")[0]}.`;
     }
@@ -400,11 +393,9 @@ export async function evolveSearchParameters(
   knowledgeBase: KnowledgeBase | null,
   seenCompanies: string[]
 ): Promise<EvolvedSearchParams> {
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+  const [brand, profile] = await Promise.all([getBrandConfig(), getBusinessProfile()]);
   const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
 
-  // Summarize history
   const queryStats = new Map<string, { runs: number; totalResults: number; totalLeads: number; totalScore: number; companies: Set<string> }>();
   for (const entry of searchHistory) {
     const s = queryStats.get(entry.query) ?? { runs: 0, totalResults: 0, totalLeads: 0, totalScore: 0, companies: new Set() };
@@ -509,8 +500,6 @@ Return ONLY a JSON object (no markdown):
 }
 
 // ─── FUNCTION 6: translateBusinessContext ────────────────────────────────────
-// Converts a user's business profile into a WatchtowerConfig that the
-// Watchtower agent uses as its live search strategy.
 
 export async function translateBusinessContext(profile: BusinessProfile): Promise<WatchtowerConfig> {
   const profileBlock = buildProductKnowledgeBlock(profile);
@@ -562,7 +551,6 @@ Rules:
     return JSON.parse(cleaned) as WatchtowerConfig;
   } catch {
     console.error("[Context] Failed to parse translateBusinessContext response");
-    // Return a minimal valid config so the UI can still render
     return {
       searchCategories: [
         {

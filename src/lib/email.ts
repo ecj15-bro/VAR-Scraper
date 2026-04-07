@@ -24,7 +24,7 @@ export async function sendReport(report: VARReport): Promise<void> {
     return;
   }
 
-  const brand = getBrandConfig();
+  const brand = await getBrandConfig();
   const apiKey = config.RESEND_API_KEY;
   const toEmail = config.REPORT_TO_EMAIL;
   const fromEmail = config.RESEND_FROM || `reports@${brand.companyName.toLowerCase().replace(/\s+/g, "")}.com`;

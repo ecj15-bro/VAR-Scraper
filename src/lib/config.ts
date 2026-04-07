@@ -47,7 +47,6 @@ export async function getConfig(): Promise<AppConfig> {
   }
 
   // Server context inside Electron main process — read process.env
-  // (electron-store values are injected into process.env at server start)
   if (isElectronMain()) {
     return {
       ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
@@ -59,7 +58,27 @@ export async function getConfig(): Promise<AppConfig> {
     };
   }
 
-  // Vercel / local dev — read process.env as always
+  // Vercel KV web mode — merge per-session KV settings over env vars
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    try {
+      const { getSettings } = await import("./store");
+      const { getCurrentSessionId } = await import("./session");
+      const sessionId = getCurrentSessionId();
+      const stored = await getSettings();
+      return {
+        ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
+        SERPER_API_KEY: stored.SERPER_API_KEY || process.env.SERPER_API_KEY || "",
+        RESEND_API_KEY: stored.RESEND_API_KEY || process.env.RESEND_API_KEY || "",
+        REPORT_TO_EMAIL: stored.REPORT_TO_EMAIL || process.env.REPORT_TO_EMAIL || "",
+        RESEND_FROM: stored.RESEND_FROM || process.env.RESEND_FROM || "",
+        ENABLE_EMAIL_DELIVERY: stored.ENABLE_EMAIL_DELIVERY || process.env.ENABLE_EMAIL_DELIVERY || "false",
+      };
+    } catch {
+      // Fall through to env-var-only if KV read fails
+    }
+  }
+
+  // Vercel / local dev without KV — read process.env
   return {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
     SERPER_API_KEY: process.env.SERPER_API_KEY ?? "",

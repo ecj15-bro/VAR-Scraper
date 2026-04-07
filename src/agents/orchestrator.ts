@@ -190,8 +190,8 @@ export async function runOrchestrator(
             varFitScore
           );
 
-          // Generate briefing synchronously — no extra API call needed
-          const briefing = generateBriefing(
+          // Generate briefing (reads brand + KB from store)
+          const briefing = await generateBriefing(
             { companyName: result.companyName, decisionMaker: result.decisionMaker },
             varFitScore,
             pitchContext

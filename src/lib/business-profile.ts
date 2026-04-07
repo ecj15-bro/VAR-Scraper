@@ -13,7 +13,7 @@ export type { BusinessProfile, WatchtowerConfig };
  * Returns the stored business profile, or null if not configured.
  * Used by agents to calibrate their behaviour for the specific business.
  */
-export function getBusinessProfile(): BusinessProfile | null {
+export async function getBusinessProfile(): Promise<BusinessProfile | null> {
   return getStoredBusinessProfile();
 }
 
@@ -21,7 +21,7 @@ export function getBusinessProfile(): BusinessProfile | null {
  * Returns the generated WatchtowerConfig, or null if not yet generated.
  * Watchtower uses this as its live search strategy when available.
  */
-export function getWatchtowerConfig(): WatchtowerConfig | null {
+export async function getWatchtowerConfig(): Promise<WatchtowerConfig | null> {
   return getStoredWatchtowerConfig();
 }
 
@@ -30,7 +30,7 @@ export function getWatchtowerConfig(): WatchtowerConfig | null {
  * If a business profile is configured, it replaces the hardcoded Cloudbox defaults.
  */
 export function buildProductKnowledgeBlock(profile: BusinessProfile | null): string {
-  if (!profile || !profile.whatYouSell) return ""; // agents fall back to hardcoded Cloudbox knowledge
+  if (!profile || !profile.whatYouSell) return "";
 
   const distModel = profile.distributionModel.join(", ") || "Direct and channel sales";
   const lookingFor = profile.lookingFor.join(", ") || "VARs and resellers";

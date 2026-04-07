@@ -145,7 +145,7 @@ Return ONLY a JSON object (no markdown, no explanation):
       briefing,
     };
 
-    saveReport({
+    await saveReport({
       companyName: result.companyName,
       decisionMaker: result.decisionMaker,
       title: result.title,
@@ -164,7 +164,7 @@ Return ONLY a JSON object (no markdown, no explanation):
       briefing,
     });
 
-    markCompanySeen(result.companyName);
+    await markCompanySeen(result.companyName);
 
     try {
       await sendReport({
@@ -201,9 +201,11 @@ export async function runSalesman(items: SalesmanInput[]): Promise<SalesmanResul
   console.log(`💼 SALESMAN: Generating pitches for ${items.length} profiles (max 5 concurrent)...`);
 
   // Hoist store reads: single read per run rather than per lead
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
-  const watchtowerConfig = getWatchtowerConfig();
+  const [brand, profile, watchtowerConfig] = await Promise.all([
+    getBrandConfig(),
+    getBusinessProfile(),
+    getWatchtowerConfig(),
+  ]);
   const pitchTone = watchtowerConfig?.pitchTone ?? "formal";
   const productBlock = buildProductBlock(brand, profile, watchtowerConfig, pitchTone);
 

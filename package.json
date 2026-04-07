@@ -32,7 +32,10 @@
     ],
     "forceCodeSigning": false,
     "win": {
-      "target": ["nsis", "zip"],
+      "target": [
+        "nsis",
+        "zip"
+      ],
       "icon": "electron/icon.ico",
       "forceCodeSigning": false
     },
@@ -50,6 +53,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.24.3",
+    "@vercel/kv": "^3.0.0",
     "docx": "^9.6.1",
     "electron-is-dev": "^3.0.1",
     "electron-store": "^11.0.2",

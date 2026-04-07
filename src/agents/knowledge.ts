@@ -1,5 +1,5 @@
 // src/agents/knowledge.ts — Self-updating knowledge agent.
-// Maintains a persistent, auto-updating brief about Cloudbox, its industry,
+// Maintains a persistent, auto-updating brief about the company, its industry,
 // competitors, and the VAR market. Runs on its own 6am cron and can be
 // triggered manually from the dashboard.
 //
@@ -20,9 +20,8 @@ interface ResearchCategory {
   fetchUrls?: string[];
 }
 
-function buildResearchCategories(): ResearchCategory[] {
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+async function buildResearchCategories(): Promise<ResearchCategory[]> {
+  const [brand, profile] = await Promise.all([getBrandConfig(), getBusinessProfile()]);
   const companyName = brand.companyName;
   const websiteUrl = profile?.websiteUrl;
 
@@ -87,7 +86,6 @@ function buildResearchCategories(): ResearchCategory[] {
 
 // ─── WEB PAGE FETCHER ────────────────────────────────────────────────────────
 
-// Fetches a URL and strips HTML to plain text. Used for cloudboxapp.com pages.
 async function fetchPageText(url: string): Promise<string> {
   try {
     const controller = new AbortController();
@@ -138,7 +136,6 @@ async function runKnowledgeSubagent(
 
   const searchResults: SearchResult[] = [];
 
-  // Run all searches in parallel within this category
   const newsPromises = category.newsQueries.map((q) =>
     searchNews(q, 5).catch((e) => {
       console.error(`[Knowledge:${category.name}] News search failed for "${q}":`, e);
@@ -175,8 +172,6 @@ async function runKnowledgeSubagent(
 
 // ─── SYNTHESIS ───────────────────────────────────────────────────────────────
 
-// Formats research results into a prompt-friendly block, capped per category
-// to keep the synthesis prompt within Claude's context window.
 function formatResultsForSynthesis(subagentResults: SubagentResult[]): string {
   return subagentResults
     .map(({ category, searchResults, pageTexts }) => {
@@ -251,7 +246,6 @@ Return ONLY a JSON object (no markdown, no explanation). All arrays must have at
   try {
     const cleaned = response.replace(/```json|```/g, "").trim();
     const parsed = JSON.parse(cleaned) as KnowledgeBase;
-    // Ensure timestamp is always fresh
     parsed.lastRefreshed = new Date().toISOString();
     return parsed;
   } catch {
@@ -275,21 +269,19 @@ Return ONLY a JSON object (no markdown, no explanation). All arrays must have at
 
 // ─── MAIN EXPORT ─────────────────────────────────────────────────────────────
 
-// Runs all research subagents in parallel, synthesizes with Claude, persists the result.
-// Called by the 6am cron and the manual dashboard Refresh Now button.
 export async function runKnowledgeRefresh(): Promise<KnowledgeBase> {
   console.log("📚 KNOWLEDGE: Starting market intelligence refresh...");
 
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
+  const [brand, profile] = await Promise.all([getBrandConfig(), getBusinessProfile()]);
   const productContext = profile?.whatYouSell
     ? `${brand.companyName} offers: ${profile.whatYouSell}. It sells through VARs and resellers.`
     : "Offers the world's first real-time weight-based inventory management solution using IoT smart scales. Sells through VARs and resellers who serve warehouses, manufacturers, distributors, and physical goods businesses.";
 
-  const previousKB = getKnowledgeBase();
-  const categories = buildResearchCategories();
+  const [previousKB, categories] = await Promise.all([
+    getKnowledgeBase(),
+    buildResearchCategories(),
+  ]);
 
-  // Spawn all category subagents in parallel
   const subagentResults = await Promise.all(
     categories.map((cat) => runKnowledgeSubagent(cat))
   );
@@ -304,7 +296,7 @@ export async function runKnowledgeRefresh(): Promise<KnowledgeBase> {
 
   const kb = await synthesizeKnowledgeBase(subagentResults, previousKB, brand.companyName, productContext);
 
-  saveKnowledgeBase(kb);
+  await saveKnowledgeBase(kb);
 
   console.log(
     `📚 KNOWLEDGE: Refresh complete. Hot verticals: ${kb.hotVerticals.join(", ") || "none"}. ` +

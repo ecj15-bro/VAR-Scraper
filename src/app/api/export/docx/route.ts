@@ -22,6 +22,7 @@ import {
   UnderlineType,
 } from "docx";
 import { getReports, ReportEntry } from "@/lib/store";
+import { extractSessionId, runWithSession } from "@/lib/session";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 
@@ -555,11 +556,13 @@ async function buildDocx(report: ReportEntry): Promise<Buffer> {
 // ─── ROUTE ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const sessionId = extractSessionId(req);
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "Missing report id" }, { status: 400 });
 
-    const report = getReports().find((r) => r.id === id);
+    const reports = await runWithSession(sessionId, () => getReports());
+    const report = reports.find((r) => r.id === id);
     if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
     const buffer = await buildDocx(report);

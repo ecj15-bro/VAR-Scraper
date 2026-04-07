@@ -3,7 +3,6 @@
 import { searchNews, SearchResult } from "@/lib/search";
 import { askClaude } from "@/lib/claude";
 import {
-  hasSeenCompany,
   getSearchHistory,
   getSeenCompanies,
   saveSearchHistory,
@@ -41,8 +40,6 @@ interface ActiveQuery {
 }
 
 // ─── DEFAULT CLOUDBOX SEARCH CATEGORIES ──────────────────────────────────────
-// Used when no WatchtowerConfig has been generated from a business profile.
-// Keeps existing Cloudbox behaviour completely unchanged.
 
 interface SearchCategory {
   name: string;
@@ -177,11 +174,10 @@ const DEFAULT_EVOLUTION: EvolvedSearchParams = {
 
 export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult> {
   // ── Load brand + business context ────────────────────────────────────────
-  const brand = getBrandConfig();
-  const profile = getBusinessProfile();
-  const watchtowerConfig = getWatchtowerConfig();
+  const brand = await getBrandConfig();
+  const profile = await getBusinessProfile();
+  const watchtowerConfig = await getWatchtowerConfig();
 
-  // Build product summary for scoring prompt
   const profileBlock = buildProductKnowledgeBlock(profile);
   const productSummary = profileBlock
     ? `We are looking for VAR partners for: ${profile?.whatYouSell ?? ""}`
@@ -191,17 +187,14 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
   let baseQueries: ActiveQuery[] = [];
 
   if (watchtowerConfig && watchtowerConfig.searchCategories.length > 0) {
-    // Use the generated WatchtowerConfig from business profile
     console.log(`🔭 WATCHTOWER: Using generated WatchtowerConfig (${watchtowerConfig.searchCategories.length} categories)`);
     for (const cat of watchtowerConfig.searchCategories) {
-      // In backfill mode use all queries; in daily mode use first 2 per category
       const qs = backfill ? cat.queries : cat.queries.slice(0, 2);
       for (const q of qs) {
         baseQueries.push({ query: q, category: cat.name, saturated: false });
       }
     }
   } else {
-    // Fall back to hardcoded Cloudbox defaults
     console.log(`🔭 WATCHTOWER: Starting ${backfill ? "backfill" : "daily"} scan across ${DEFAULT_SEARCH_CATEGORIES.length} categories...`);
     for (const cat of DEFAULT_SEARCH_CATEGORIES) {
       const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
@@ -210,9 +203,11 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
   }
 
   // ── Load context for evolution ───────────────────────────────────────────
-  const searchHistory = getSearchHistory();
-  const kb = getKnowledgeBase();
-  const seenCompanies = getSeenCompanies();
+  const [searchHistory, kb, seenCompanies] = await Promise.all([
+    getSearchHistory(),
+    getKnowledgeBase(),
+    getSeenCompanies(),
+  ]);
 
   const currentQueries = baseQueries.map((q) => q.query);
 
@@ -225,7 +220,7 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
     if (evolution.evolutionRationale) {
       console.log(`🔭 WATCHTOWER [evolution]: ${evolution.evolutionRationale}`);
     }
-    saveSearchEvolution(evolution);
+    await saveSearchEvolution(evolution);
   } catch (e) {
     console.error("[Watchtower] Search evolution failed, using current queries:", e);
   }
@@ -235,12 +230,10 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
   const saturatedSet = new Set(evolution.saturatedQueries);
   const activeQueries: ActiveQuery[] = baseQueries.filter((q) => !retireSet.has(q.query));
 
-  // Mark saturated
   for (const aq of activeQueries) {
     if (saturatedSet.has(aq.query)) aq.saturated = true;
   }
 
-  // Add evolved queries
   const existingSet = new Set(activeQueries.map((q) => q.query));
   const evolvedToAdd = [
     ...evolution.addQueries,
@@ -321,10 +314,12 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
     }
   }
 
-  // ── Filter qualified leads ────────────────────────────────────────────────
+  // ── Filter qualified leads (use pre-fetched seenCompanies to avoid per-company async calls)
+  const seenSet = new Set(seenCompanies.map((c) => c.toLowerCase().trim()));
+
   const leads: ScoredLead[] = allScored
     .filter((s) => s.relevanceScore >= 6 && s.index < allResults.length)
-    .filter((s) => !hasSeenCompany(s.companyName))
+    .filter((s) => !seenSet.has(s.companyName.toLowerCase().trim()))
     .map((s) => {
       const r = allResults[s.index];
       return {
@@ -342,27 +337,29 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
   // ── Save search history per query ─────────────────────────────────────────
   const now = new Date().toISOString();
 
-  for (const { aq, results } of queryRuns) {
-    const queryUrlSet = new Set(results.map((r) => r.link));
-    const attributedLeads = leads.filter((l) => queryUrlSet.has(l.newsUrl));
-    const avgScore =
-      attributedLeads.length > 0
-        ? Math.round(
-            (attributedLeads.reduce((sum, l) => sum + l.relevanceScore, 0) / attributedLeads.length) * 10
-          ) / 10
-        : 0;
+  await Promise.all(
+    queryRuns.map(({ aq, results }) => {
+      const queryUrlSet = new Set(results.map((r) => r.link));
+      const attributedLeads = leads.filter((l) => queryUrlSet.has(l.newsUrl));
+      const avgScore =
+        attributedLeads.length > 0
+          ? Math.round(
+              (attributedLeads.reduce((sum, l) => sum + l.relevanceScore, 0) / attributedLeads.length) * 10
+            ) / 10
+          : 0;
 
-    saveSearchHistory({
-      id: crypto.randomUUID(),
-      timestamp: now,
-      query: aq.query,
-      category: aq.category,
-      resultsCount: results.length,
-      qualifiedLeadsCount: attributedLeads.length,
-      avgRelevanceScore: avgScore,
-      companiesFound: attributedLeads.map((l) => l.companyName),
-    });
-  }
+      return saveSearchHistory({
+        id: crypto.randomUUID(),
+        timestamp: now,
+        query: aq.query,
+        category: aq.category,
+        resultsCount: results.length,
+        qualifiedLeadsCount: attributedLeads.length,
+        avgRelevanceScore: avgScore,
+        companiesFound: attributedLeads.map((l) => l.companyName),
+      });
+    })
+  );
 
   return { leads, searchEvolution: evolution, queriesRetired, queriesAdded };
 }

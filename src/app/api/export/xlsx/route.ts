@@ -1,8 +1,9 @@
 // src/app/api/export/xlsx/route.ts — Styled Excel workbook export with summary sheet
 
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { getReports, ReportEntry } from "@/lib/store";
+import { extractSessionId, runWithSession } from "@/lib/session";
 
 // ─── THEME ────────────────────────────────────────────────────────────────────
 
@@ -294,9 +295,10 @@ async function buildWorkbook(reports: ReportEntry[]): Promise<Buffer> {
 
 // ─── ROUTE ───────────────────────────────────────────────────────────────────
 
-export async function GET() {
+export async function GET(req: NextRequest) {
+  const sessionId = extractSessionId(req);
   try {
-    const reports = getReports();
+    const reports = await runWithSession(sessionId, () => getReports());
     if (reports.length === 0) {
       return NextResponse.json({ error: "No reports to export" }, { status: 404 });
     }

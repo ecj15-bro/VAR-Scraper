@@ -1,27 +1,27 @@
-// lib/brand.ts — Brand config accessor (server-side)
-// Client-side access goes through /api/brand HTTP route.
+// lib/brand.ts — Brand configuration accessor (server-side)
+//
+// getBrandConfig() reads from the store (file or KV depending on adapter).
+// Falls back to "Cloudbox" defaults when no brand has been configured.
 
 import { getStoredBrandConfig, BrandConfig } from "./store";
 
 export type { BrandConfig };
 
-export const DEFAULT_BRAND: BrandConfig = {
+const DEFAULT_BRAND: BrandConfig = {
   companyName: "Cloudbox",
-  tagline: "Multi-agent partner prospecting pipeline",
-  primaryColor: "#00ff88",
+  tagline: "The world's first real-time weight-based inventory management solution",
+  primaryColor: "#00cc66",
 };
 
 /**
- * Returns the brand config from the file store, falling back to Cloudbox defaults.
- * Usable in agents, API routes, and any server-side context.
+ * Returns the active brand config, or Cloudbox defaults if not yet configured.
+ * Async because the underlying store may be KV-backed.
  */
-export function getBrandConfig(): BrandConfig {
-  const stored = getStoredBrandConfig();
+export async function getBrandConfig(): Promise<BrandConfig> {
+  const stored = await getStoredBrandConfig();
   if (!stored) return DEFAULT_BRAND;
   return {
-    companyName: stored.companyName || DEFAULT_BRAND.companyName,
-    tagline: stored.tagline || DEFAULT_BRAND.tagline,
-    primaryColor: stored.primaryColor || DEFAULT_BRAND.primaryColor,
-    logoDataUrl: stored.logoDataUrl,
+    ...DEFAULT_BRAND,
+    ...stored,
   };
 }

@@ -19,6 +19,7 @@ import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { getReports, ReportEntry } from "@/lib/store";
 import { getBrandConfig } from "@/lib/brand";
+import { extractSessionId, runWithSession } from "@/lib/session";
 
 // ─── PAGE GEOMETRY ────────────────────────────────────────────────────────────
 
@@ -641,7 +642,7 @@ async function collectBuffer(doc: Doc): Promise<Buffer> {
 }
 
 async function buildPDF(report: ReportEntry): Promise<Buffer> {
-  const brand = getBrandConfig();
+  const brand = await getBrandConfig();
   const chromeOpts: ChromeOptions = {
     companyName: brand.companyName,
     accentColor: brand.primaryColor,
@@ -671,11 +672,13 @@ async function buildPDF(report: ReportEntry): Promise<Buffer> {
 // ─── ROUTE ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  const sessionId = extractSessionId(req);
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "Missing report id" }, { status: 400 });
 
-    const report = getReports().find((r) => r.id === id);
+    const reports = await runWithSession(sessionId, () => getReports());
+    const report = reports.find((r) => r.id === id);
     if (!report) return NextResponse.json({ error: "Report not found" }, { status: 404 });
 
     const buffer = await buildPDF(report);

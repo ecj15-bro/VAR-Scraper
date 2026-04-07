@@ -102,10 +102,30 @@ function createWindow(port) {
     },
   });
 
-  mainWindow.loadURL(`http://127.0.0.1:${port}`);
-
   if (isDev) {
+    mainWindow.loadURL(`http://127.0.0.1:${port}`);
     mainWindow.webContents.openDevTools();
+  } else {
+    // Show loading screen immediately while Next.js is already running
+    mainWindow.loadFile(path.join(__dirname, "loading.html"));
+
+    // Poll until the Next.js server responds, then navigate
+    const appUrl = `http://127.0.0.1:${port}`;
+    let attempts = 0;
+    const poll = setInterval(() => {
+      attempts++;
+      fetch(appUrl)
+        .then(() => {
+          clearInterval(poll);
+          mainWindow.loadURL(appUrl);
+        })
+        .catch(() => {
+          if (attempts > 60) {
+            clearInterval(poll);
+            mainWindow.loadURL(appUrl); // try anyway after 30s
+          }
+        });
+    }, 500);
   }
 
   mainWindow.on("closed", () => {
@@ -261,9 +281,10 @@ app.whenReady().then(async () => {
       await injectStoreToEnv();
       serverPort = await findPort();
       console.log(`[main] Starting Next.js on port ${serverPort}...`);
+      // Show window with loading screen immediately, then start server in background
+      createWindow(serverPort);
       await startNextServer(serverPort);
       console.log(`[main] Next.js ready on port ${serverPort}`);
-      createWindow(serverPort);
     }
   } catch (err) {
     console.error("[main] Failed to start:", err);
