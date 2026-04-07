@@ -2,6 +2,9 @@
 
 import { searchWeb, SearchResult } from "@/lib/search";
 import { askClaude } from "@/lib/claude";
+import { getBrandConfig } from "@/lib/brand";
+import { getBusinessProfile } from "@/lib/business-profile";
+import { createConcurrencyLimiter } from "@/lib/concurrency";
 import { ScoredLead } from "./watchtower";
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
@@ -24,39 +27,6 @@ export interface DetectiveResult {
   confidenceScore: number;
 }
 
-// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
-
-// Limits how many subagents run simultaneously to avoid Serper rate limits.
-function createConcurrencyLimiter(max: number) {
-  let running = 0;
-  const queue: Array<() => void> = [];
-
-  function next() {
-    if (queue.length > 0 && running < max) {
-      running++;
-      queue.shift()!();
-    }
-  }
-
-  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
-    await new Promise<void>((resolve) => {
-      if (running < max) {
-        running++;
-        resolve();
-      } else {
-        queue.push(resolve);
-      }
-    });
-
-    try {
-      return await fn();
-    } finally {
-      running--;
-      next();
-    }
-  };
-}
-
 // ─── PROFILE EXTRACTION ─────────────────────────────────────────────────────
 
 interface SearchSets {
@@ -68,7 +38,9 @@ interface SearchSets {
 
 async function extractProfile(
   lead: ScoredLead,
-  searchSets: SearchSets
+  searchSets: SearchSets,
+  companyName: string,
+  productSummary: string
 ): Promise<Omit<DetectiveResult, "companyName" | "newsTitle" | "newsSnippet" | "newsUrl" | "newsSource" | "relevanceScore"> | null> {
   const companySnippets = searchSets.company
     .map((r) => `${r.title}: ${r.snippet}`)
@@ -84,7 +56,7 @@ async function extractProfile(
     .join("\n");
 
   const response = await askClaude(
-    `You are a business intelligence detective for Cloudbox, a real-time weight-based inventory solution. Extract structured information about a company and identify the best decision maker to contact for a VAR/reseller partnership discussion.
+    `You are a business intelligence detective for ${companyName}. ${productSummary} Extract structured information about a company and identify the best decision maker to contact for a VAR/reseller partnership discussion.
 
 Return ONLY a JSON object (no markdown, no explanation):
 {
@@ -92,8 +64,8 @@ Return ONLY a JSON object (no markdown, no explanation):
   "title": "Their exact job title",
   "linkedinUrl": "https://linkedin.com/in/username or null",
   "companyWebsite": "domain.com (no https://, no path) or null",
-  "companyProfile": "3-4 sentences: what they do, estimated size, focus areas, and specifically why they would make an ideal Cloudbox VAR partner who can sell weight-based inventory solutions",
-  "personProfile": "3-4 sentences: this person's background, what they have accomplished, what professional goals they likely care about, and what specific Cloudbox messaging angle would resonate with them",
+  "companyProfile": "3-4 sentences: what they do, estimated size, focus areas, and specifically why they would make an ideal VAR partner",
+  "personProfile": "3-4 sentences: this person's background, what they have accomplished, what professional goals they likely care about, and what messaging angle would resonate with them",
   "confidenceScore": 7
 }
 
@@ -130,7 +102,11 @@ ${newsSnippets || "(no results)"}`
 
 // Handles one company. Runs 4 searches in parallel, then calls Claude once.
 // If confidenceScore < 4, runs a targeted second-pass before giving up.
-async function runDetectiveSubagent(lead: ScoredLead): Promise<DetectiveResult | null> {
+async function runDetectiveSubagent(
+  lead: ScoredLead,
+  companyName: string,
+  productSummary: string
+): Promise<DetectiveResult | null> {
   console.log(`🕵️ DETECTIVE: Profiling ${lead.companyName}...`);
 
   try {
@@ -145,7 +121,7 @@ async function runDetectiveSubagent(lead: ScoredLead): Promise<DetectiveResult |
       searchWeb(`${lead.companyName} recent news partnerships 2026`, 5),
     ]);
 
-    let profile = await extractProfile(lead, { company, leadership, linkedin, news });
+    let profile = await extractProfile(lead, { company, leadership, linkedin, news }, companyName, productSummary);
 
     // Second-pass if confidence is too low
     if (profile !== null && profile.confidenceScore < 4) {
@@ -161,7 +137,7 @@ async function runDetectiveSubagent(lead: ScoredLead): Promise<DetectiveResult |
         leadership: [...leadership, ...secondLeadership],
         linkedin,
         news,
-      });
+      }, companyName, productSummary);
     }
 
     if (!profile) return null;
@@ -187,11 +163,17 @@ async function runDetectiveSubagent(lead: ScoredLead): Promise<DetectiveResult |
 export async function runDetective(leads: ScoredLead[]): Promise<DetectiveResult[]> {
   console.log(`🕵️ DETECTIVE: Processing ${leads.length} leads (max 3 concurrent)...`);
 
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const productSummary = profile?.whatYouSell
+    ? `We are looking for VAR partners for: ${profile.whatYouSell}`
+    : "We offer the world's first real-time weight-based inventory management solution using IoT smart scales.";
+
   const limit = createConcurrencyLimiter(3);
 
   const results = await Promise.all(
     leads.map((lead) =>
-      limit(() => runDetectiveSubagent(lead))
+      limit(() => runDetectiveSubagent(lead, brand.companyName, productSummary))
     )
   );
 

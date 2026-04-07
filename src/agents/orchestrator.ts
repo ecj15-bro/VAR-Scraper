@@ -8,6 +8,7 @@ import { runWatchtower, ScoredLead, WatchtowerResult } from "./watchtower";
 import { EvolvedSearchParams } from "@/lib/store";
 import { runDetective, DetectiveResult } from "./detective";
 import { runSalesman, SalesmanResult, SalesmanInput } from "./salesman";
+import { createConcurrencyLimiter } from "@/lib/concurrency";
 import {
   scoreVARFit,
   enrichPitchContext,
@@ -16,29 +17,6 @@ import {
   VARFitScore,
   PitchContext,
 } from "./context";
-
-// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
-
-function createConcurrencyLimiter(max: number) {
-  let running = 0;
-  const queue: Array<() => void> = [];
-
-  function next() {
-    if (queue.length > 0 && running < max) {
-      running++;
-      queue.shift()!();
-    }
-  }
-
-  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
-    await new Promise<void>((resolve) => {
-      if (running < max) { running++; resolve(); }
-      else { queue.push(resolve); }
-    });
-    try { return await fn(); }
-    finally { running--; next(); }
-  };
-}
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 

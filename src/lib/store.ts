@@ -44,6 +44,50 @@ export interface KnowledgeBase {
   lastInsights: string;
 }
 
+// ─── BRAND CONFIG ─────────────────────────────────────────────────────────────
+
+export interface BrandConfig {
+  companyName: string;
+  tagline: string;
+  primaryColor: string;
+  logoDataUrl?: string; // base64 data URL (may be large — keep < 500KB)
+}
+
+// ─── BUSINESS PROFILE ─────────────────────────────────────────────────────────
+
+export interface BusinessProfile {
+  companyName: string;
+  websiteUrl: string;
+  whatYouSell: string;
+  whoBuysFromYou: string;
+  whyChooseYou: string;
+  avgDealSize: "under10k" | "10k-50k" | "50k-100k" | "100k+" | "enterprise";
+  salesCycleLength: "days" | "weeks" | "1-3months" | "3-6months" | "6months+";
+  distributionModel: string[];
+  lookingFor: string[];
+}
+
+// ─── WATCHTOWER CONFIG ────────────────────────────────────────────────────────
+
+export interface WatchtowerSearchCategory {
+  name: string;
+  description: string;
+  queries: string[];
+  priority: "high" | "medium" | "low";
+}
+
+export interface WatchtowerConfig {
+  searchCategories: WatchtowerSearchCategory[];
+  idealVARProfile: string;
+  targetVerticals: string[];
+  avoidVerticals: string[];
+  partnerEcosystem: string[];
+  dealSizeGuidance: string;
+  pitchTone: "formal" | "casual" | "technical" | "executive";
+  keyValueProps: string[];
+  redFlagPatterns: string[];
+}
+
 // ─── STORE SHAPE ─────────────────────────────────────────────────────────────
 
 interface Store {
@@ -52,6 +96,9 @@ interface Store {
   knowledgeBase?: KnowledgeBase;
   searchHistory?: SearchHistoryEntry[];
   lastSearchEvolution?: EvolvedSearchParams;
+  brandConfig?: BrandConfig;
+  businessProfile?: BusinessProfile;
+  watchtowerConfig?: WatchtowerConfig;
 }
 
 export interface ReportEntry {
@@ -99,16 +146,24 @@ export interface ReportEntry {
   briefing?: string;
 }
 
+// In-memory cache: avoids dozens of redundant fs.readFileSync calls per pipeline run.
+// Invalidated on every write so reads always see the latest persisted state.
+let _cache: Store | null = null;
+
 function loadStore(): Store {
+  if (_cache) return _cache;
   try {
     if (fs.existsSync(STORE_PATH)) {
-      return JSON.parse(fs.readFileSync(STORE_PATH, "utf8"));
+      _cache = JSON.parse(fs.readFileSync(STORE_PATH, "utf8")) as Store;
+      return _cache;
     }
   } catch {}
-  return { seenCompanies: [], reports: [] };
+  _cache = { seenCompanies: [], reports: [] };
+  return _cache;
 }
 
 function saveStore(store: Store) {
+  _cache = store; // update cache before write so subsequent reads are consistent
   fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
 }
 
@@ -205,4 +260,40 @@ export function saveKnowledgeBase(kb: KnowledgeBase): void {
 
 export function getKnowledgeBase(): KnowledgeBase | null {
   return loadStore().knowledgeBase ?? null;
+}
+
+// ─── BRAND CONFIG ─────────────────────────────────────────────────────────────
+
+export function saveBrandConfig(brand: BrandConfig): void {
+  const store = loadStore();
+  store.brandConfig = brand;
+  saveStore(store);
+}
+
+export function getStoredBrandConfig(): BrandConfig | null {
+  return loadStore().brandConfig ?? null;
+}
+
+// ─── BUSINESS PROFILE ─────────────────────────────────────────────────────────
+
+export function saveBusinessProfile(profile: BusinessProfile): void {
+  const store = loadStore();
+  store.businessProfile = profile;
+  saveStore(store);
+}
+
+export function getStoredBusinessProfile(): BusinessProfile | null {
+  return loadStore().businessProfile ?? null;
+}
+
+// ─── WATCHTOWER CONFIG ────────────────────────────────────────────────────────
+
+export function saveWatchtowerConfig(config: WatchtowerConfig): void {
+  const store = loadStore();
+  store.watchtowerConfig = config;
+  saveStore(store);
+}
+
+export function getStoredWatchtowerConfig(): WatchtowerConfig | null {
+  return loadStore().watchtowerConfig ?? null;
 }

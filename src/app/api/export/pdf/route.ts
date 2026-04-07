@@ -18,6 +18,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import PDFDocument from "pdfkit";
 import { getReports, ReportEntry } from "@/lib/store";
+import { getBrandConfig } from "@/lib/brand";
 
 // ─── PAGE GEOMETRY ────────────────────────────────────────────────────────────
 
@@ -73,31 +74,71 @@ type Doc = InstanceType<typeof PDFDocument>;
 // IMPORTANT: called from inside pageAdded handler — must use zero-margin mode
 // to prevent footer text at PAGE_H-18 from triggering another page break.
 
-function drawChrome(doc: Doc, pageNum: number, totalPages: number) {
-  // Save and wipe margins so no overflow check fires during chrome drawing
+interface ChromeOptions {
+  companyName: string;
+  accentColor: string;
+  logoDataUrl?: string;
+  websiteLabel?: string;
+}
+
+function drawChrome(doc: Doc, pageNum: number, totalPages: number, opts: ChromeOptions) {
   const saved = { ...doc.page.margins };
   doc.page.margins = { top: 0, bottom: 0, left: 0, right: 0 };
+
+  const accent = opts.accentColor || GREEN;
 
   // ── Header bar ──
   doc.rect(0, 0, PAGE_W, HEADER_H).fill(BG_DARK);
 
+  let headerTextX = ML;
+
+  // Logo (if available)
+  if (opts.logoDataUrl) {
+    try {
+      const base64Data = opts.logoDataUrl.includes(",")
+        ? opts.logoDataUrl.split(",")[1]
+        : opts.logoDataUrl;
+      const logoBuffer = Buffer.from(base64Data, "base64");
+      const logoSize = 32;
+      doc.image(logoBuffer, ML, (HEADER_H - logoSize) / 2, {
+        fit: [logoSize, logoSize],
+      });
+      headerTextX = ML + logoSize + 10;
+    } catch {
+      // Logo decode failed — fall through to text-only header
+    }
+  }
+
+  // Company name split at last space for accent colouring
+  const name = (opts.companyName || "VAR HUNTER").toUpperCase();
+  const parts = name.lastIndexOf(" ") > 0
+    ? [name.slice(0, name.lastIndexOf(" ")), name.slice(name.lastIndexOf(" ") + 1)]
+    : [name, ""];
+
   doc.font(F.bold).fontSize(11).fillColor("#ffffff")
-     .text("CLOUDBOX ", ML, 18, { lineBreak: false, continued: false });
+     .text(parts[0] + (parts[1] ? " " : ""), headerTextX, 18, { lineBreak: false });
 
-  // Re-position for accent word (continued: true in pdfkit moves x but not y)
-  const cxOff = ML + doc.widthOfString("CLOUDBOX ");
-  doc.font(F.bold).fontSize(11).fillColor(GREEN)
-     .text("VAR HUNTER", cxOff, 18, { lineBreak: false });
+  if (parts[1]) {
+    const off = headerTextX + doc.widthOfString(parts[0] + " ");
+    doc.font(F.bold).fontSize(11).fillColor(accent)
+       .text(parts[1], off, 18, { lineBreak: false });
+  }
 
+  const subLabel = opts.websiteLabel
+    ? `Intelligence Report  ·  ${opts.websiteLabel}`
+    : "Intelligence Report";
   doc.font(F.reg).fontSize(7.5).fillColor(SUBTLE)
-     .text("Intelligence Report  ·  cloudboxapp.com", ML, 35, { lineBreak: false });
+     .text(subLabel, headerTextX, 35, { lineBreak: false });
 
   // ── Footer bar ──
   const fy = PAGE_H - FOOTER_H;
   doc.rect(0, fy, PAGE_W, FOOTER_H).fill(BG_DARK);
 
+  const footerLabel = opts.websiteLabel
+    ? `${opts.companyName} VAR Hunter  ·  ${opts.websiteLabel}`
+    : `${opts.companyName} VAR Hunter`;
   doc.font(F.reg).fontSize(7.5).fillColor(SUBTLE)
-     .text("Cloudbox VAR Hunter  ·  cloudboxapp.com", ML, fy + 10, { lineBreak: false });
+     .text(footerLabel, ML, fy + 10, { lineBreak: false });
 
   const pageLabel = totalPages > 0
     ? `Page ${pageNum} of ${totalPages}`
@@ -105,7 +146,6 @@ function drawChrome(doc: Doc, pageNum: number, totalPages: number) {
   doc.font(F.reg).fontSize(7.5).fillColor("#ffffff")
      .text(pageLabel, ML, fy + 10, { width: CW, align: "right", lineBreak: false });
 
-  // Restore margins and reset cursor to content area
   doc.page.margins = saved;
   doc.x = ML;
   doc.y = CONTENT_TOP;
@@ -125,21 +165,23 @@ class Layout {
   y:          number = CONTENT_TOP;
   pageNum:    number = 1;
   totalPages: number;
+  chromeOpts: ChromeOptions;
 
-  constructor(doc: Doc, totalPages: number) {
+  constructor(doc: Doc, totalPages: number, chromeOpts: ChromeOptions) {
     this.doc        = doc;
     this.totalPages = totalPages;
+    this.chromeOpts = chromeOpts;
 
     // Hook into auto-pagination (pdfkit-initiated page breaks mid-text-flow)
     doc.on("pageAdded", () => {
       this.pageNum++;
-      drawChrome(doc, this.pageNum, this.totalPages);
+      drawChrome(doc, this.pageNum, this.totalPages, this.chromeOpts);
       // doc.y is reset to margins.top by pdfkit after pageAdded; our tracking
       // is synced below via sync() after every doc.text() call.
     });
 
     // Draw first page chrome
-    drawChrome(doc, 1, this.totalPages);
+    drawChrome(doc, 1, this.totalPages, this.chromeOpts);
   }
 
   // Sync our Y tracker from pdfkit's cursor (call after any doc.text())
@@ -189,10 +231,11 @@ class Layout {
   // This ensures the header + at least the first chunk of content always stay together.
   sectionHeader(label: string, minContentAfter = 40) {
     const LABEL_H = 20;
-    this.ensureSpace(LABEL_H + minContentAfter);
+    this.ensureSpace(Math.max(LABEL_H + minContentAfter, SECTION_GUARD));
 
-    // Accent bar
-    this.doc.rect(ML, this.y, 3, 13).fill(GREEN);
+    // Accent bar — uses brand accent color
+    const accent = this.chromeOpts.accentColor || GREEN;
+    this.doc.rect(ML, this.y, 3, 13).fill(accent);
 
     // Label text
     this.doc.font(F.bold).fontSize(8)
@@ -278,10 +321,10 @@ function renderTitleBlock(l: Layout, report: ReportEntry) {
     badges.push({ text: `${report.varFitScore.overallScore}/10`, bg: fcolor + "14", fg: fcolor });
   }
   if (report.relevanceScore !== undefined) {
-    badges.push({ text: `R: ${report.relevanceScore}`, bg: GREEN + "14", fg: GREEN });
+    badges.push({ text: `RELEVANCE ${report.relevanceScore}/10`, bg: GREEN + "14", fg: GREEN });
   }
   if (report.confidenceScore !== undefined) {
-    badges.push({ text: `C: ${report.confidenceScore}`, bg: BRIEF_ACC + "22", fg: BRIEF_ACC });
+    badges.push({ text: `CONFIDENCE ${report.confidenceScore}/10`, bg: BRIEF_ACC + "22", fg: BRIEF_ACC });
   }
 
   if (badges.length > 0) {
@@ -510,8 +553,8 @@ function renderNewsTrigger(l: Layout, report: ReportEntry) {
 
 // ─── FULL REPORT RENDER ───────────────────────────────────────────────────────
 
-function renderReport(doc: Doc, report: ReportEntry, totalPages: number) {
-  const l = new Layout(doc, totalPages);
+function renderReport(doc: Doc, report: ReportEntry, totalPages: number, chromeOpts: ChromeOptions) {
+  const l = new Layout(doc, totalPages, chromeOpts);
 
   // 1. Title block (company name, badges, meta row, timestamp)
   renderTitleBlock(l, report);
@@ -598,21 +641,29 @@ async function collectBuffer(doc: Doc): Promise<Buffer> {
 }
 
 async function buildPDF(report: ReportEntry): Promise<Buffer> {
+  const brand = getBrandConfig();
+  const chromeOpts: ChromeOptions = {
+    companyName: brand.companyName,
+    accentColor: brand.primaryColor,
+    logoDataUrl: brand.logoDataUrl,
+    websiteLabel: undefined,
+  };
+
   // ── Pass 1: dry run to count total pages ──────────────────────────────────
   const dryDoc = makeDoc();
   let dryPageCount = 1;
   dryDoc.on("pageAdded", () => { dryPageCount++; });
   const dryBuf = collectBuffer(dryDoc);
-  renderReport(dryDoc, report, 0); // totalPages=0 → footer shows "Page X"
+  renderReport(dryDoc, report, 0, chromeOpts); // totalPages=0 → footer shows "Page X"
   dryDoc.end();
-  await dryBuf; // ensure it completes
+  await dryBuf;
 
   const totalPages = dryPageCount;
 
   // ── Pass 2: real render with correct page numbers ─────────────────────────
   const realDoc = makeDoc();
   const realBuf = collectBuffer(realDoc);
-  renderReport(realDoc, report, totalPages);
+  renderReport(realDoc, report, totalPages, chromeOpts);
   realDoc.end();
   return realBuf;
 }

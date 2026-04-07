@@ -1,5 +1,7 @@
 // lib/search.ts — Serper.dev web search wrapper
 
+import { getConfig } from "./config";
+
 export interface SearchResult {
   title: string;
   link: string;
@@ -8,10 +10,11 @@ export interface SearchResult {
 }
 
 export async function searchWeb(query: string, num = 10): Promise<SearchResult[]> {
+  const config = await getConfig();
   const res = await fetch("https://google.serper.dev/search", {
     method: "POST",
     headers: {
-      "X-API-KEY": process.env.SERPER_API_KEY!,
+      "X-API-KEY": config.SERPER_API_KEY,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ q: query, num }),
@@ -29,10 +32,11 @@ export async function searchWeb(query: string, num = 10): Promise<SearchResult[]
 }
 
 export async function searchNews(query: string, num = 10): Promise<SearchResult[]> {
+  const config = await getConfig();
   const res = await fetch("https://google.serper.dev/news", {
     method: "POST",
     headers: {
-      "X-API-KEY": process.env.SERPER_API_KEY!,
+      "X-API-KEY": config.SERPER_API_KEY,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ q: query, num }),

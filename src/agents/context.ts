@@ -9,7 +9,11 @@ import {
   KnowledgeBase,
   SearchHistoryEntry,
   EvolvedSearchParams,
+  WatchtowerConfig,
+  WatchtowerSearchCategory,
 } from "@/lib/store";
+import { getBrandConfig } from "@/lib/brand";
+import { getBusinessProfile, buildProductKnowledgeBlock, BusinessProfile } from "@/lib/business-profile";
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
 
@@ -37,9 +41,12 @@ interface BriefingSubject {
   decisionMaker: string;
 }
 
-// ─── CLOUDBOX KNOWLEDGE BASE ─────────────────────────────────────────────────
-// Ground truth about Cloudbox — hardcoded, not fetched. This is what the
-// context agent uses as the lens through which it evaluates every lead.
+// Re-export for use in other modules
+export type { WatchtowerConfig, WatchtowerSearchCategory };
+
+// ─── CLOUDBOX DEFAULTS ───────────────────────────────────────────────────────
+// Used when no business profile has been configured. Keeps existing Cloudbox
+// behaviour completely unchanged.
 
 const CLOUDBOX_KNOWLEDGE = {
   product: {
@@ -103,9 +110,10 @@ const CLOUDBOX_KNOWLEDGE = {
   },
 } as const;
 
-// Build the compact text block that goes into every Claude system prompt
-function buildKnowledgeBlock(): string {
-  return `CLOUDBOX PRODUCT OVERVIEW:
+// ─── KNOWLEDGE BLOCK BUILDERS ────────────────────────────────────────────────
+
+function buildDefaultKnowledgeBlock(companyName: string): string {
+  return `${companyName.toUpperCase()} PRODUCT OVERVIEW:
 Tagline: ${CLOUDBOX_KNOWLEDGE.product.tagline}
 How it works: ${CLOUDBOX_KNOWLEDGE.product.mechanism}
 Key selling points: ${CLOUDBOX_KNOWLEDGE.product.keyFeatures.join("; ")}
@@ -120,7 +128,7 @@ IDEAL VAR PROFILE:
 - ${CLOUDBOX_KNOWLEDGE.idealVARProfile.technicalCapability}
 - ${CLOUDBOX_KNOWLEDGE.idealVARProfile.sizeSweetSpot}
 
-STRONG FIT VERTICALS (their customers are likely Cloudbox buyers):
+STRONG FIT VERTICALS (their customers are likely ${companyName} buyers):
 ${CLOUDBOX_KNOWLEDGE.strongFitVerticals.map((v) => `- ${v}`).join("\n")}
 
 WEAK FIT / AVOID SIGNALS:
@@ -134,9 +142,18 @@ STRATEGIC TECHNOLOGY PARTNERS (working with any of these = strong signal):
 - ${CLOUDBOX_KNOWLEDGE.strategicPartners.note}`;
 }
 
+/**
+ * Builds the product knowledge block for use in Claude prompts.
+ * If a business profile exists, it uses that; otherwise falls back to hardcoded Cloudbox defaults.
+ */
+function buildKnowledgeBlock(profile: BusinessProfile | null, companyName: string): string {
+  const profileBlock = buildProductKnowledgeBlock(profile);
+  return profileBlock || buildDefaultKnowledgeBlock(companyName);
+}
+
 // Builds the live intelligence block from the most recent knowledge refresh.
 // Returns empty string when no knowledge base exists yet (first run).
-function buildLiveIntelligenceBlock(kb: KnowledgeBase): string {
+function buildLiveIntelligenceBlock(kb: KnowledgeBase, companyName: string): string {
   const age = Math.round(
     (Date.now() - new Date(kb.lastRefreshed).getTime()) / 3600000
   );
@@ -149,7 +166,7 @@ function buildLiveIntelligenceBlock(kb: KnowledgeBase): string {
 
   if (kb.hotVerticals.length > 0) {
     lines.push(
-      `\nHOT VERTICALS right now (highest signal for Cloudbox VAR sales):\n` +
+      `\nHOT VERTICALS right now (highest signal for ${companyName} VAR sales):\n` +
       kb.hotVerticals.map((v) => `- ${v}`).join("\n")
     );
     lines.push(
@@ -191,8 +208,6 @@ function buildLiveIntelligenceBlock(kb: KnowledgeBase): string {
 }
 
 // ─── FUNCTION 1: scoreVARFit ─────────────────────────────────────────────────
-// Evaluates how well a company fits as a Cloudbox VAR.
-// Can be called twice: first with name+news only (pre-detective), then with full profiles.
 
 export async function scoreVARFit(
   companyName: string,
@@ -200,12 +215,14 @@ export async function scoreVARFit(
   personProfile: string,
   newsContext: string
 ): Promise<VARFitScore> {
-  const knowledgeBlock = buildKnowledgeBlock();
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
   const kb = getKnowledgeBase();
-  const liveBlock = kb ? buildLiveIntelligenceBlock(kb) : "";
+  const liveBlock = kb ? buildLiveIntelligenceBlock(kb, brand.companyName) : "";
 
   const response = await askClaude(
-    `You are the Cloudbox Partner Intelligence System. Evaluate whether a company is a strong candidate to become a Cloudbox VAR (Value Added Reseller). Use the Cloudbox knowledge base below as ground truth.
+    `You are the ${brand.companyName} Partner Intelligence System. Evaluate whether a company is a strong candidate to become a ${brand.companyName} VAR (Value Added Reseller). Use the knowledge base below as ground truth.
 
 Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
 
@@ -221,7 +238,7 @@ Return ONLY a JSON object (no markdown, no explanation):
   "redFlags": ["No hardware deployment history found", "..."],
   "deploymentEase": "easy",
   "estimatedDealSize": "mid",
-  "strategicNotes": "Already works with NetSuite customers — Cloudbox integration would be seamless for their installs"
+  "strategicNotes": "Context-specific strategic notes here"
 }
 
 fitCategory rules (must match overallScore range):
@@ -230,7 +247,7 @@ fitCategory rules (must match overallScore range):
 - "weak":     overallScore 4–5, marginal fit, would require significant effort to qualify
 - "avoid":    overallScore 0–3, wrong type of company or active disqualifiers present
 
-deploymentEase: how easy would it be for this VAR to deploy Cloudbox to their existing customers
+deploymentEase: how easy would it be for this VAR to deploy ${brand.companyName} to their existing customers
 estimatedDealSize: "small" = sub-$10k ARR, "mid" = $10k–$100k ARR, "enterprise" = $100k+ ARR
 
 fitReasons: list specific, evidence-backed reasons they are a good fit (not generic)
@@ -259,8 +276,6 @@ ${personProfile ? `\nDecision maker profile:\n${personProfile}` : ""}
 }
 
 // ─── FUNCTION 2: enrichPitchContext ──────────────────────────────────────────
-// Generates strategic pitch guidance for the Salesman agent.
-// Called after Detective has produced full profiles and after scoreVARFit.
 
 export async function enrichPitchContext(
   companyName: string,
@@ -268,12 +283,14 @@ export async function enrichPitchContext(
   personProfile: string,
   varFitScore: VARFitScore
 ): Promise<PitchContext> {
-  const knowledgeBlock = buildKnowledgeBlock();
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
   const kb = getKnowledgeBase();
-  const liveBlock = kb ? buildLiveIntelligenceBlock(kb) : "";
+  const liveBlock = kb ? buildLiveIntelligenceBlock(kb, brand.companyName) : "";
 
   const response = await askClaude(
-    `You are the Cloudbox Pitch Intelligence System. Given a VAR candidate's profile and their fit assessment, generate the strategic pitch context that will make outreach most effective and human.
+    `You are the ${brand.companyName} Pitch Intelligence System. Given a VAR candidate's profile and their fit assessment, generate the strategic pitch context that will make outreach most effective and human.
 
 Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
 
@@ -281,11 +298,11 @@ ${knowledgeBlock}${liveBlock}
 
 Return ONLY a JSON object (no markdown, no explanation):
 {
-  "hookAngle": "The single most compelling, specific reason this VAR should care about Cloudbox right now — reference something concrete about their business",
-  "painPoints": ["A specific pain point their customers likely experience that Cloudbox directly solves", "..."],
-  "integrationAngle": "If they work with a known partner technology from the list above, name it and explain the integration angle — or null if none identified",
+  "hookAngle": "The single most compelling, specific reason this VAR should care about ${brand.companyName} right now — reference something concrete about their business",
+  "painPoints": ["A specific pain point their customers likely experience that ${brand.companyName} directly solves", "..."],
+  "integrationAngle": "If they work with a known partner technology, name it and explain the integration angle — or null if none identified",
   "toneRecommendation": "formal",
-  "avoidMentioning": ["Aspects of Cloudbox that are not relevant or could raise objections for this specific company type"]
+  "avoidMentioning": ["Aspects of ${brand.companyName} that are not relevant or could raise objections for this specific company type"]
 }
 
 toneRecommendation guidelines:
@@ -311,10 +328,10 @@ VAR fit assessment:
   } catch {
     console.error(`[Context] Failed to parse enrichPitchContext for ${companyName}`);
     return {
-      hookAngle: `${companyName}'s customers could eliminate manual inventory tracking entirely with Cloudbox`,
+      hookAngle: `${companyName}'s customers could eliminate manual processes entirely with ${brand.companyName}`,
       painPoints: [
-        "Manual cycle counts consume hours of warehouse staff time each week",
-        "Stockouts and overstock situations caused by inaccurate real-time visibility",
+        "Manual processes consuming hours of staff time each week",
+        "Lack of real-time visibility causing costly errors",
       ],
       integrationAngle: null,
       toneRecommendation: "formal",
@@ -324,8 +341,6 @@ VAR fit assessment:
 }
 
 // ─── FUNCTION 3: isWorthPursuing ─────────────────────────────────────────────
-// Gate function used by the orchestrator to drop weak leads before expensive
-// Detective and Salesman API calls are made.
 
 export function isWorthPursuing(varFitScore: VARFitScore): boolean {
   if (varFitScore.fitCategory === "avoid") return false;
@@ -334,14 +349,13 @@ export function isWorthPursuing(varFitScore: VARFitScore): boolean {
 }
 
 // ─── FUNCTION 4: generateBriefing ────────────────────────────────────────────
-// Builds a 1-paragraph executive briefing from structured pipeline data.
-// Synchronous — no Claude call. Uses data already produced by the pipeline.
 
 export function generateBriefing(
   subject: BriefingSubject,
   varFitScore: VARFitScore,
   pitchContext: PitchContext
 ): string {
+  const brand = getBrandConfig();
   const topReason =
     varFitScore.fitReasons.length > 0
       ? varFitScore.fitReasons[0]
@@ -370,7 +384,7 @@ export function generateBriefing(
   }
 
   return (
-    `Why this matters: ${subject.companyName} is a ${varFitScore.fitCategory} Cloudbox VAR fit ` +
+    `Why this matters: ${subject.companyName} is a ${varFitScore.fitCategory} ${brand.companyName} VAR fit ` +
     `(${varFitScore.overallScore}/10). ${topReason}.${integrationNote} ` +
     `Recommended approach: ${pitchContext.toneRecommendation} tone, targeting ${subject.decisionMaker}. ` +
     `Estimated deal size: ${dealSizeLabel}. ` +
@@ -379,8 +393,6 @@ export function generateBriefing(
 }
 
 // ─── FUNCTION 5: evolveSearchParameters ──────────────────────────────────────
-// Analyzes search history and KB to evolve the query set each run.
-// Called by Watchtower before launching searches.
 
 export async function evolveSearchParameters(
   currentQueries: string[],
@@ -388,9 +400,11 @@ export async function evolveSearchParameters(
   knowledgeBase: KnowledgeBase | null,
   seenCompanies: string[]
 ): Promise<EvolvedSearchParams> {
-  const knowledgeBlock = buildKnowledgeBlock();
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const knowledgeBlock = buildKnowledgeBlock(profile, brand.companyName);
 
-  // Summarize history: top performers and worst performers
+  // Summarize history
   const queryStats = new Map<string, { runs: number; totalResults: number; totalLeads: number; totalScore: number; companies: Set<string> }>();
   for (const entry of searchHistory) {
     const s = queryStats.get(entry.query) ?? { runs: 0, totalResults: 0, totalLeads: 0, totalScore: 0, companies: new Set() };
@@ -424,12 +438,12 @@ Hot verticals: ${knowledgeBase.hotVerticals.join(", ") || "none yet"}
 Cold verticals: ${knowledgeBase.coldVerticals.join(", ") || "none yet"}
 Executive insights: ${knowledgeBase.lastInsights}
 Partner ecosystem signals: ${knowledgeBase.partnerEcosystem.slice(0, 3).join("; ") || "none"}`
-    : "No knowledge base yet — generate queries based on Cloudbox product knowledge only.";
+    : "No knowledge base yet — generate queries based on product knowledge only.";
 
   const recentSeenSample = seenCompanies.slice(-30).join(", ") || "none yet";
 
   const response = await askClaude(
-    `You are a search strategy analyst for Cloudbox's VAR prospecting pipeline. Your job is to evolve the search query set to find better leads over time.
+    `You are a search strategy analyst for ${brand.companyName}'s VAR prospecting pipeline. Your job is to evolve the search query set to find better leads over time.
 
 Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
 
@@ -458,14 +472,13 @@ YOUR TASK:
 1. RETIRE queries that have run 3+ times and produced zero qualified leads — these are wasted API calls.
 2. Generate 5-10 NEW queries targeting angles not yet covered (check the current query list for gaps).
 3. Generate 2-3 HOT VERTICAL queries directly tied to the hot verticals in the knowledge base.
-4. Generate 1-2 ECOSYSTEM queries targeting partner ecosystem companies (NetSuite resellers, Fishbowl integrators, Cin7 partners, Ingram Micro VARs, etc.).
+4. Generate 1-2 ECOSYSTEM queries targeting partner ecosystem companies.
 5. Flag any query showing saturation (same companies every run) as saturated — still run them but note it.
 
 Query writing rules:
 - Queries should be 4-10 words, natural search engine style
 - Include year (2026) where relevant to get fresh results
 - Target specific business types, not generic terms
-- Focus on companies that distribute or resell physical goods tech
 
 Return ONLY a JSON object (no markdown):
 {
@@ -491,6 +504,86 @@ Return ONLY a JSON object (no markdown):
       ecosystemQueries: [],
       saturatedQueries: [],
       evolutionRationale: "Search evolution parsing failed — using current query set unchanged.",
+    };
+  }
+}
+
+// ─── FUNCTION 6: translateBusinessContext ────────────────────────────────────
+// Converts a user's business profile into a WatchtowerConfig that the
+// Watchtower agent uses as its live search strategy.
+
+export async function translateBusinessContext(profile: BusinessProfile): Promise<WatchtowerConfig> {
+  const profileBlock = buildProductKnowledgeBlock(profile);
+
+  const response = await askClaude(
+    `You are a channel sales strategist specializing in building VAR (Value Added Reseller) and reseller partner networks.
+
+A company has described their business. Your job is to translate this into a precise, actionable search and partner strategy for their VAR prospecting pipeline.
+
+Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
+
+${profileBlock}
+
+Return ONLY a JSON object (no markdown, no explanation). The object must exactly match this shape:
+{
+  "searchCategories": [
+    {
+      "name": "Category name",
+      "description": "What kind of companies this targets",
+      "queries": ["3-5 specific Google-style search queries for this category"],
+      "priority": "high"
+    }
+  ],
+  "idealVARProfile": "A paragraph describing the ideal VAR or reseller partner for this specific business — what they sell, who their customers are, their size, and what makes them a perfect fit",
+  "targetVerticals": ["Industry vertical 1", "Industry vertical 2"],
+  "avoidVerticals": ["Vertical to avoid 1"],
+  "partnerEcosystem": ["Complementary technology 1", "Complementary technology 2"],
+  "dealSizeGuidance": "Guidance on deal sizing for VARs selling this product",
+  "pitchTone": "formal",
+  "keyValueProps": ["Why a VAR should care #1", "Why a VAR should care #2", "Why a VAR should care #3"],
+  "redFlagPatterns": ["Pattern that suggests a bad VAR fit", "..."]
+}
+
+Rules:
+- Generate 4-6 search categories, each with 3-5 unique queries
+- Queries must be natural search engine style, 4-10 words, usable in Google News
+- Include year (2026) in at least half the queries to get fresh results
+- targetVerticals: 5-8 specific industries where this product would sell well through a VAR
+- avoidVerticals: 2-4 industries that are unlikely fits (too small, wrong model, etc.)
+- partnerEcosystem: 4-8 technologies/platforms a good VAR would already sell or integrate with
+- pitchTone: one of "formal", "casual", "technical", "executive" — based on typical buyer profile
+- keyValueProps: exactly 3-5 sharp bullet points on why a VAR should add this product
+- redFlagPatterns: 3-6 patterns that indicate a VAR is unlikely to be a good fit`,
+    `Translate this business profile into a VAR partner strategy for ${profile.companyName}.`
+  );
+
+  try {
+    const cleaned = response.replace(/```json|```/g, "").trim();
+    return JSON.parse(cleaned) as WatchtowerConfig;
+  } catch {
+    console.error("[Context] Failed to parse translateBusinessContext response");
+    // Return a minimal valid config so the UI can still render
+    return {
+      searchCategories: [
+        {
+          name: "General partner search",
+          description: "Broad search for potential VAR partners",
+          queries: [
+            `${profile.companyName} reseller partnership 2026`,
+            "VAR channel partner program expansion 2026",
+            "technology reseller new vendor agreement",
+          ],
+          priority: "high",
+        },
+      ],
+      idealVARProfile: `A partner that sells complementary solutions to ${profile.companyName}'s target customers and is actively expanding their product portfolio.`,
+      targetVerticals: [],
+      avoidVerticals: [],
+      partnerEcosystem: [],
+      dealSizeGuidance: "Evaluate deal size based on the VAR's existing customer base size and buying power.",
+      pitchTone: "formal",
+      keyValueProps: [profile.whyChooseYou || "Strong value proposition for VAR's existing customer base"],
+      redFlagPatterns: ["No existing customer base in target verticals"],
     };
   }
 }

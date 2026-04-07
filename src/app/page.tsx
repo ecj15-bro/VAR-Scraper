@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
@@ -101,9 +102,18 @@ const STAGE_LABELS = [
 
 // ─── DASHBOARD ───────────────────────────────────────────────────────────────
 
+interface BrandState {
+  companyName: string;
+  tagline: string;
+  primaryColor: string;
+  logoDataUrl: string;
+}
+
 export default function Dashboard() {
+  const router = useRouter();
   const [reports, setReports] = useState<Report[]>([]);
   const [kb, setKb] = useState<KnowledgeBase | null>(null);
+  const [brand, setBrand] = useState<BrandState>({ companyName: "Cloudbox", tagline: "Multi-agent partner prospecting pipeline", primaryColor: "#00ff88", logoDataUrl: "" });
   const [selected, setSelected] = useState<Report | null>(null);
   const [status, setStatus] = useState<RunStatus>("idle");
   const [stageIdx, setStageIdx] = useState(0);
@@ -132,9 +142,38 @@ export default function Dashboard() {
     if (typeof data.totalUniqueQueries === "number") setTotalUniqueQueries(data.totalUniqueQueries);
   }, []);
 
+  // Fetch reports and brand in parallel on mount
   useEffect(() => {
-    fetchReports();
+    Promise.all([
+      fetchReports(),
+      fetch("/api/brand").then((r) => r.json()).catch(() => null),
+    ]).then(([, brandData]) => {
+      if (brandData) {
+        setBrand({
+          companyName: brandData.companyName || "Cloudbox",
+          tagline: brandData.tagline || "Multi-agent partner prospecting pipeline",
+          primaryColor: brandData.primaryColor || "#00ff88",
+          logoDataUrl: brandData.logoDataUrl || "",
+        });
+        if (brandData.primaryColor) {
+          document.documentElement.style.setProperty("--accent", brandData.primaryColor);
+        }
+      }
+    });
   }, [fetchReports]);
+
+  // First-run: redirect to settings if running in Electron and keys are missing
+  useEffect(() => {
+    async function checkFirstRun() {
+      if (typeof window !== "undefined" && window.electronAPI) {
+        const settings = await window.electronAPI.getSettings();
+        if (!settings.ANTHROPIC_API_KEY || !settings.SERPER_API_KEY) {
+          router.push("/settings?firstRun=1");
+        }
+      }
+    }
+    checkFirstRun();
+  }, [router]);
 
   const deleteLead = async (id: string) => {
     await fetch(`/api/reports?id=${id}`, { method: "DELETE" });
@@ -226,33 +265,26 @@ export default function Dashboard() {
         }}
       >
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <div
-            style={{
-              width: 40,
-              height: 40,
-              background: "var(--accent)",
-              borderRadius: 8,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-              fontSize: 20,
-            }}
-          >
-            📦
-          </div>
+          {brand.logoDataUrl
+            // eslint-disable-next-line @next/next/no-img-element
+            ? <img src={brand.logoDataUrl} alt="" style={{ width: 40, height: 40, objectFit: "contain", borderRadius: 6 }} />
+            : (
+              <div style={{ width: 40, height: 40, background: "var(--accent)", borderRadius: 8, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 20 }}>
+                📦
+              </div>
+            )
+          }
           <div>
-            <div
-              style={{
-                fontFamily: "'Space Mono', monospace",
-                fontWeight: 700,
-                fontSize: 18,
-                letterSpacing: "-0.5px",
-              }}
-            >
-              CLOUDBOX <span style={{ color: "var(--accent)" }}>VAR HUNTER</span>
+            <div style={{ fontFamily: "'Space Mono', monospace", fontWeight: 700, fontSize: 18, letterSpacing: "-0.5px" }}>
+              {(() => {
+                const words = brand.companyName.toUpperCase().split(" ");
+                return words.map((w, i) => (
+                  <span key={i} style={{ color: i === words.length - 1 ? "var(--accent)" : undefined }}>{w}{i < words.length - 1 ? " " : ""}</span>
+                ));
+              })()}
             </div>
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 2 }}>
-              Multi-agent partner prospecting pipeline
+              {brand.tagline}
             </div>
           </div>
         </div>
@@ -354,6 +386,22 @@ export default function Dashboard() {
             }}
           >
             {status === "running" ? "RUNNING..." : "▶ RUN NOW"}
+          </button>
+          <button
+            onClick={() => router.push("/settings")}
+            title="Settings"
+            style={{
+              padding: "10px 12px",
+              border: "1px solid var(--border)",
+              borderRadius: 6,
+              background: "transparent",
+              color: "var(--muted)",
+              cursor: "pointer",
+              fontSize: 16,
+              lineHeight: 1,
+            }}
+          >
+            ⚙
           </button>
         </div>
       </header>
@@ -586,6 +634,7 @@ export default function Dashboard() {
             onRefresh={refreshKnowledge}
             searchEvolution={searchEvolution}
             totalUniqueQueries={totalUniqueQueries}
+            companyName={brand.companyName}
           />
         </div>
       )}
@@ -666,6 +715,7 @@ function IntelligencePanel({
   onRefresh,
   searchEvolution,
   totalUniqueQueries,
+  companyName,
 }: {
   kb: KnowledgeBase | null;
   refreshing: boolean;
@@ -673,6 +723,7 @@ function IntelligencePanel({
   onRefresh: () => void;
   searchEvolution: EvolvedSearchParams | null;
   totalUniqueQueries: number;
+  companyName: string;
 }) {
   const ageLabel = kb
     ? (() => {
@@ -985,7 +1036,7 @@ function IntelligencePanel({
             }}
           >
             <IntelCard
-              title="📦 CLOUDBOX UPDATES"
+              title={`📦 ${companyName.toUpperCase()} UPDATES`}
               items={kb.cloudboxUpdates}
               accentColor="var(--accent2)"
               emptyText="No recent updates found"
@@ -1993,7 +2044,7 @@ function ReportDetail({ report }: { report: Report }) {
               letterSpacing: "0.05em",
             }}
           >
-            💬 PERSONALIZED CLOUDBOX PITCH
+            💬 PERSONALIZED PITCH
           </div>
           <button
             onClick={copyPitch}

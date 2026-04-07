@@ -3,10 +3,11 @@
 import { askClaude } from "@/lib/claude";
 import { sendReport } from "@/lib/email";
 import { saveReport, markCompanySeen } from "@/lib/store";
+import { getBrandConfig, BrandConfig } from "@/lib/brand";
+import { getBusinessProfile, getWatchtowerConfig, buildProductKnowledgeBlock, BusinessProfile, WatchtowerConfig } from "@/lib/business-profile";
+import { createConcurrencyLimiter } from "@/lib/concurrency";
 import { DetectiveResult } from "./detective";
 import { VARFitScore, PitchContext } from "./context";
-
-// ─── TYPES ──────────────────────────────────────────────────────────────────
 
 export interface PitchVariants {
   cold_email: string;
@@ -24,48 +25,35 @@ export interface SalesmanResult extends DetectiveResult {
   briefing: string;
 }
 
-// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
+function buildProductBlock(
+  brand: BrandConfig,
+  profile: BusinessProfile | null,
+  watchtowerConfig: WatchtowerConfig | null,
+  pitchTone: string
+): string {
+  if (profile?.whatYouSell) {
+    const keyProps = watchtowerConfig?.keyValueProps?.length
+      ? `KEY VALUE PROPS FOR VARs:\n${watchtowerConfig.keyValueProps.map((p) => `- ${p}`).join("\n")}`
+      : "";
+    return `${brand.companyName.toUpperCase()} PRODUCT CONTEXT:
+${buildProductKnowledgeBlock(profile)}
 
-// Limits how many subagents run simultaneously to avoid Claude rate limits.
-function createConcurrencyLimiter(max: number) {
-  let running = 0;
-  const queue: Array<() => void> = [];
+${keyProps}
 
-  function next() {
-    if (queue.length > 0 && running < max) {
-      running++;
-      queue.shift()!();
-    }
+Recommended pitch tone for this business: ${pitchTone}`.trim();
   }
 
-  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
-    await new Promise<void>((resolve) => {
-      if (running < max) {
-        running++;
-        resolve();
-      } else {
-        queue.push(resolve);
-      }
-    });
-
-    try {
-      return await fn();
-    } finally {
-      running--;
-      next();
-    }
-  };
+  return `${brand.companyName.toUpperCase()} PRODUCT CONTEXT:
+${brand.companyName} is the world's first real-time weight-based inventory management solution. It uses IoT smart scales to automatically track inventory by weight. No manual scanning, no barcodes, no human error. Integrates into existing ERP and WMS workflows. Ideal for warehouses, manufacturers, distributors, and physical goods businesses. VARs who add ${brand.companyName} gain a differentiated hardware+software product with strong recurring IoT subscription revenue.`;
 }
 
-// ─── SUBAGENT ───────────────────────────────────────────────────────────────
-
-// Handles one profile: generates 3 pitch variants using ContextAgent guidance,
-// saves to store, and delivers the report.
 async function runSalesmanSubagent(
   result: DetectiveResult,
   pitchContext: PitchContext,
   varFitScore: VARFitScore,
-  briefing: string
+  briefing: string,
+  brand: BrandConfig,
+  productBlock: string
 ): Promise<SalesmanResult | null> {
   console.log(`💼 SALESMAN: Generating pitches for ${result.companyName} (fit: ${varFitScore.fitCategory} ${varFitScore.overallScore}/10)...`);
 
@@ -73,12 +61,11 @@ async function runSalesmanSubagent(
     const isHighConfidence = result.confidenceScore >= 7;
 
     const response = await askClaude(
-      `You are a senior business development strategist for Cloudbox (cloudboxapp.com).
+      `You are a senior business development strategist for ${brand.companyName}.
 
-CLOUDBOX PRODUCT CONTEXT:
-Cloudbox is the world's first real-time weight-based inventory management solution. It uses IoT smart scales to automatically track inventory by weight. No manual scanning, no barcodes, no human error. Integrates into existing ERP and WMS workflows. Ideal for warehouses, manufacturers, distributors, and physical goods businesses. VARs who add Cloudbox gain a differentiated hardware+software product with strong recurring IoT subscription revenue.
+${productBlock}
 
-STRATEGIC PITCH GUIDANCE (from Cloudbox context intelligence):
+STRATEGIC PITCH GUIDANCE (from ${brand.companyName} context intelligence):
 Hook angle: ${pitchContext.hookAngle}
 Customer pain points to reference: ${pitchContext.painPoints.join("; ")}
 ${pitchContext.integrationAngle ? `Integration angle: ${pitchContext.integrationAngle}` : ""}
@@ -92,11 +79,9 @@ Strategic context: ${varFitScore.strategicNotes}
 YOUR TASK:
 Generate FIVE outreach pitch variants for ${result.decisionMaker}, ${result.title} at ${result.companyName}.
 
-${
-  isHighConfidence
-    ? "You have HIGH CONFIDENCE verified data — be highly specific and personalized in all five variants."
-    : "You have MODERATE CONFIDENCE data — stay grounded in what is known about the company type; do not fabricate specifics."
-}
+${isHighConfidence
+  ? "You have HIGH CONFIDENCE verified data — be highly specific and personalized in all five variants."
+  : "You have MODERATE CONFIDENCE data — stay grounded in what is known about the company type; do not fabricate specifics."}
 
 PERSON CONTEXT:
 ${result.personProfile}
@@ -116,18 +101,19 @@ PITCH RULES — all five must:
 - Never use em dashes (—) in any output. Use commas, periods, or restructure the sentence instead.
 - Match the tone recommendation: ${pitchContext.toneRecommendation}
 - End with a clear, low-pressure, specific CTA
+- Sign off as ${brand.companyName} (not "Cloudbox" unless that is the company name)
 
 VARIANTS TO GENERATE:
 
-1. cold_email: 4–5 sentence cold email opening. Lead with the hook angle or something specific from the news trigger. Explain the Cloudbox fit for their specific book of business. Close with a specific, low-pressure ask.
+1. cold_email: 4–5 sentence cold email opening. Lead with the hook angle or something specific from the news trigger. Explain the ${brand.companyName} fit for their specific book of business. Close with a specific, low-pressure ask.
 
-2. linkedin_message: 2–3 sentence LinkedIn connection request. Ultra concise, no setup, no fluff. One hook, one line on Cloudbox, one soft implied ask.
+2. linkedin_message: 2–3 sentence LinkedIn connection request. Ultra concise, no setup, no fluff. One hook, one line on ${brand.companyName}, one soft implied ask.
 
 3. followup_email: Follow-up assuming no response after one week. Different angle or new value prop not in the cold email. 3–4 sentences. Not apologetic.
 
-4. text_message: 1–2 sentences max. SMS style. Casual and direct, assumes a warm intro context (e.g., met at a conference, referred by a mutual contact). No formal sign-off. Just the hook and a question.
+4. text_message: 1–2 sentences max. SMS style. Casual and direct, assumes a warm intro context. No formal sign-off. Just the hook and a question.
 
-5. executive_brief: 3 bullet points max. Boardroom style. Leads with the business case and ROI angle. Zero fluff, zero pleasantries. Each bullet is one punchy sentence. Format as plain text bullets starting with "•", not a letter or greeting.
+5. executive_brief: 3 bullet points max. Boardroom style. Leads with the business case and ROI angle. Zero fluff, zero pleasantries. Each bullet is one punchy sentence. Format as plain text bullets starting with "•".
 
 Return ONLY a JSON object (no markdown, no explanation):
 {
@@ -142,14 +128,12 @@ Return ONLY a JSON object (no markdown, no explanation):
 
     let variants: PitchVariants;
     try {
-      const cleaned = response.replace(/```json|```/g, "").trim();
-      variants = JSON.parse(cleaned);
+      variants = JSON.parse(response.replace(/```json|```/g, "").trim());
     } catch {
       console.error(`[Salesman] Failed to parse pitch variants for ${result.companyName}`);
       return null;
     }
 
-    // cold_email is the default selected pitch; user can switch in the UI
     const selectedPitch = variants.cold_email;
 
     const salesmanResult: SalesmanResult = {
@@ -161,7 +145,6 @@ Return ONLY a JSON object (no markdown, no explanation):
       briefing,
     };
 
-    // Persist to store before delivery — data is never lost if the send fails
     saveReport({
       companyName: result.companyName,
       decisionMaker: result.decisionMaker,
@@ -183,9 +166,7 @@ Return ONLY a JSON object (no markdown, no explanation):
 
     markCompanySeen(result.companyName);
 
-    // Deliver report — include briefing at the top of the pitch for Teams visibility
     try {
-      const pitchWithBriefing = `${briefing}\n\n---\n\n${selectedPitch}`;
       await sendReport({
         companyName: result.companyName,
         decisionMaker: result.decisionMaker,
@@ -194,7 +175,7 @@ Return ONLY a JSON object (no markdown, no explanation):
         companyWebsite: result.companyWebsite ?? undefined,
         companyProfile: result.companyProfile,
         personProfile: result.personProfile,
-        pitch: pitchWithBriefing,
+        pitch: `${briefing}\n\n---\n\n${selectedPitch}`,
         newsTitle: result.newsTitle,
         newsSource: result.newsUrl,
       });
@@ -209,8 +190,6 @@ Return ONLY a JSON object (no markdown, no explanation):
   }
 }
 
-// ─── PARENT AGENT ───────────────────────────────────────────────────────────
-
 export interface SalesmanInput {
   lead: DetectiveResult;
   varFitScore: VARFitScore;
@@ -218,19 +197,25 @@ export interface SalesmanInput {
   briefing: string;
 }
 
-// Spawns all salesman subagents in parallel with a concurrency cap of 5.
 export async function runSalesman(items: SalesmanInput[]): Promise<SalesmanResult[]> {
   console.log(`💼 SALESMAN: Generating pitches for ${items.length} profiles (max 5 concurrent)...`);
 
+  // Hoist store reads: single read per run rather than per lead
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const watchtowerConfig = getWatchtowerConfig();
+  const pitchTone = watchtowerConfig?.pitchTone ?? "formal";
+  const productBlock = buildProductBlock(brand, profile, watchtowerConfig, pitchTone);
+
   const limit = createConcurrencyLimiter(5);
 
-  const salesResults = await Promise.all(
+  const results = await Promise.all(
     items.map(({ lead, varFitScore, pitchContext, briefing }) =>
-      limit(() => runSalesmanSubagent(lead, pitchContext, varFitScore, briefing))
+      limit(() => runSalesmanSubagent(lead, pitchContext, varFitScore, briefing, brand, productBlock))
     )
   );
 
-  const valid = salesResults.filter((r): r is SalesmanResult => r !== null);
+  const valid = results.filter((r): r is SalesmanResult => r !== null);
   console.log(`💼 SALESMAN: Generated ${valid.length}/${items.length} pitch sets`);
   return valid;
 }

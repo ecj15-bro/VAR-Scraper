@@ -1,5 +1,8 @@
 // lib/email.ts — Report delivery via Resend
 
+import { getConfig } from "./config";
+import { getBrandConfig } from "./brand";
+
 export interface VARReport {
   companyName: string;
   decisionMaker: string;
@@ -14,14 +17,17 @@ export interface VARReport {
 }
 
 export async function sendReport(report: VARReport): Promise<void> {
-  if (process.env.ENABLE_EMAIL_DELIVERY !== "true") {
+  const config = await getConfig();
+
+  if (config.ENABLE_EMAIL_DELIVERY !== "true") {
     console.log(`[sendReport] Email delivery disabled — report saved to dashboard only`);
     return;
   }
 
-  const apiKey = process.env.RESEND_API_KEY;
-  const toEmail = process.env.REPORT_TO_EMAIL;
-  const fromEmail = process.env.RESEND_FROM ?? "reports@cloudboxapp.com";
+  const brand = getBrandConfig();
+  const apiKey = config.RESEND_API_KEY;
+  const toEmail = config.REPORT_TO_EMAIL;
+  const fromEmail = config.RESEND_FROM || `reports@${brand.companyName.toLowerCase().replace(/\s+/g, "")}.com`;
 
   if (!apiKey) throw new Error("RESEND_API_KEY not set");
   if (!toEmail) throw new Error("REPORT_TO_EMAIL not set");
@@ -38,7 +44,7 @@ export async function sendReport(report: VARReport): Promise<void> {
     <p>${report.companyProfile}</p>
     <h3>🧠 Person Context</h3>
     <p>${report.personProfile}</p>
-    <h3>💬 Personalised Cloudbox Pitch</h3>
+    <h3>💬 Personalised Pitch</h3>
     <p>${report.pitch.replace(/\n/g, "<br />")}</p>
     <hr />
     <p style="color:#888;font-size:12px;">Source: <a href="${report.newsSource}">${report.newsSource}</a></p>

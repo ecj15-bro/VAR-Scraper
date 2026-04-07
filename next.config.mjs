@@ -8,6 +8,8 @@ const nextConfig = {
     }
     return config;
   },
+  // Needed when running inside Electron (file:// protocol or localhost)
+  output: "standalone",
 };
 
 export default nextConfig;

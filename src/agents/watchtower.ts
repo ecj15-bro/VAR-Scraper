@@ -11,6 +11,9 @@ import {
   getKnowledgeBase,
   EvolvedSearchParams,
 } from "@/lib/store";
+import { getBrandConfig } from "@/lib/brand";
+import { getBusinessProfile, getWatchtowerConfig, buildProductKnowledgeBlock } from "@/lib/business-profile";
+import { createConcurrencyLimiter } from "@/lib/concurrency";
 import { evolveSearchParameters } from "./context";
 
 // ─── TYPES ──────────────────────────────────────────────────────────────────
@@ -37,7 +40,9 @@ interface ActiveQuery {
   saturated: boolean;
 }
 
-// ─── SEARCH CATEGORY DEFINITIONS ─────────────────────────────────────────────
+// ─── DEFAULT CLOUDBOX SEARCH CATEGORIES ──────────────────────────────────────
+// Used when no WatchtowerConfig has been generated from a business profile.
+// Keeps existing Cloudbox behaviour completely unchanged.
 
 interface SearchCategory {
   name: string;
@@ -45,9 +50,7 @@ interface SearchCategory {
   backfillQueries: string[];
 }
 
-// Daily queries total: 1+1+1+1+2+2 = 8
-// Backfill queries total: 3+3+2+2+3+2 = 15
-const SEARCH_CATEGORIES: SearchCategory[] = [
+const DEFAULT_SEARCH_CATEGORIES: SearchCategory[] = [
   {
     name: "IT/MSP partnerships",
     dailyQueries: [
@@ -115,33 +118,12 @@ const SEARCH_CATEGORIES: SearchCategory[] = [
   },
 ];
 
-// ─── CONCURRENCY LIMITER ─────────────────────────────────────────────────────
-
-function createConcurrencyLimiter(max: number) {
-  let running = 0;
-  const queue: Array<() => void> = [];
-
-  function next() {
-    if (queue.length > 0 && running < max) {
-      running++;
-      queue.shift()!();
-    }
-  }
-
-  return async function limit<T>(fn: () => Promise<T>): Promise<T> {
-    await new Promise<void>((resolve) => {
-      if (running < max) { running++; resolve(); }
-      else { queue.push(resolve); }
-    });
-    try { return await fn(); }
-    finally { running--; next(); }
-  };
-}
-
 // ─── SCORING ────────────────────────────────────────────────────────────────
 
 async function scoreBatch(
-  batch: SearchResult[]
+  batch: SearchResult[],
+  companyName: string,
+  productSummary: string
 ): Promise<{ index: number; companyName: string; relevanceScore: number }[]> {
   const snippets = batch
     .map(
@@ -151,15 +133,14 @@ async function scoreBatch(
     .join("\n\n");
 
   const response = await askClaude(
-    `You are a business development analyst for Cloudbox (cloudboxapp.com), which offers the world's first real-time weight-based inventory management solution using IoT smart scales — no manual scanning, no human error. Ideal for warehouses, manufacturers, distributors, and physical goods businesses.
+    `You are a business development analyst for ${companyName}. ${productSummary}
 
 Score each news article for VAR (Value Added Reseller) partnership relevance. High-scoring companies are:
 - IT/MSP companies (Managed Service Providers) expanding their offering
 - Cloud solutions resellers or distributors
 - Technology distributors dealing in hardware/software
-- Companies handling physical inventory, warehousing, or supply chain tech
-- Hardware/software resellers who could bundle Cloudbox into their offering
 - Companies forming new vendor relationships or expanding their product portfolio
+- Partners that serve the target customer base described above
 
 Score 0-10 where:
 - 8-10: Clearly a VAR candidate actively expanding offerings or forming reseller partnerships
@@ -169,7 +150,7 @@ Score 0-10 where:
 
 Return ONLY a JSON array (no markdown, no explanation). Include an entry for every index provided:
 [{"index": 0, "companyName": "Acme IT Solutions", "relevanceScore": 8}]`,
-    `Score these news results for Cloudbox VAR partnership relevance:\n\n${snippets}`
+    `Score these news results for ${companyName} VAR partnership relevance:\n\n${snippets}`
   );
 
   try {
@@ -195,19 +176,45 @@ const DEFAULT_EVOLUTION: EvolvedSearchParams = {
 // ─── PARENT AGENT ────────────────────────────────────────────────────────────
 
 export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult> {
-  console.log(`🔭 WATCHTOWER: Starting ${backfill ? "backfill" : "daily"} scan across ${SEARCH_CATEGORIES.length} categories...`);
+  // ── Load brand + business context ────────────────────────────────────────
+  const brand = getBrandConfig();
+  const profile = getBusinessProfile();
+  const watchtowerConfig = getWatchtowerConfig();
+
+  // Build product summary for scoring prompt
+  const profileBlock = buildProductKnowledgeBlock(profile);
+  const productSummary = profileBlock
+    ? `We are looking for VAR partners for: ${profile?.whatYouSell ?? ""}`
+    : "We offer the world's first real-time weight-based inventory management solution using IoT smart scales — ideal for warehouses, manufacturers, distributors, and physical goods businesses.";
+
+  // ── Build active query list ───────────────────────────────────────────────
+  let baseQueries: ActiveQuery[] = [];
+
+  if (watchtowerConfig && watchtowerConfig.searchCategories.length > 0) {
+    // Use the generated WatchtowerConfig from business profile
+    console.log(`🔭 WATCHTOWER: Using generated WatchtowerConfig (${watchtowerConfig.searchCategories.length} categories)`);
+    for (const cat of watchtowerConfig.searchCategories) {
+      // In backfill mode use all queries; in daily mode use first 2 per category
+      const qs = backfill ? cat.queries : cat.queries.slice(0, 2);
+      for (const q of qs) {
+        baseQueries.push({ query: q, category: cat.name, saturated: false });
+      }
+    }
+  } else {
+    // Fall back to hardcoded Cloudbox defaults
+    console.log(`🔭 WATCHTOWER: Starting ${backfill ? "backfill" : "daily"} scan across ${DEFAULT_SEARCH_CATEGORIES.length} categories...`);
+    for (const cat of DEFAULT_SEARCH_CATEGORIES) {
+      const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
+      baseQueries.push(...qs.map((q) => ({ query: q, category: cat.name, saturated: false })));
+    }
+  }
 
   // ── Load context for evolution ───────────────────────────────────────────
   const searchHistory = getSearchHistory();
   const kb = getKnowledgeBase();
   const seenCompanies = getSeenCompanies();
 
-  // ── Build current query list from SEARCH_CATEGORIES ──────────────────────
-  const currentQueries: string[] = [];
-  for (const cat of SEARCH_CATEGORIES) {
-    const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
-    currentQueries.push(...qs);
-  }
+  const currentQueries = baseQueries.map((q) => q.query);
 
   // ── Evolve search parameters ──────────────────────────────────────────────
   let evolution = DEFAULT_EVOLUTION;
@@ -223,20 +230,17 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
     console.error("[Watchtower] Search evolution failed, using current queries:", e);
   }
 
-  // ── Build active query list ───────────────────────────────────────────────
+  // ── Apply evolution to query list ─────────────────────────────────────────
   const retireSet = new Set(evolution.retireQueries);
   const saturatedSet = new Set(evolution.saturatedQueries);
-  const activeQueries: ActiveQuery[] = [];
+  const activeQueries: ActiveQuery[] = baseQueries.filter((q) => !retireSet.has(q.query));
 
-  for (const cat of SEARCH_CATEGORIES) {
-    const qs = backfill ? cat.backfillQueries : cat.dailyQueries;
-    for (const q of qs) {
-      if (!retireSet.has(q)) {
-        activeQueries.push({ query: q, category: cat.name, saturated: saturatedSet.has(q) });
-      }
-    }
+  // Mark saturated
+  for (const aq of activeQueries) {
+    if (saturatedSet.has(aq.query)) aq.saturated = true;
   }
 
+  // Add evolved queries
   const existingSet = new Set(activeQueries.map((q) => q.query));
   const evolvedToAdd = [
     ...evolution.addQueries,
@@ -310,7 +314,7 @@ export async function runWatchtower(backfill: boolean): Promise<WatchtowerResult
   for (let i = 0; i < allResults.length; i += BATCH_SIZE) {
     const batch = allResults.slice(i, i + BATCH_SIZE);
     try {
-      const batchScores = await scoreBatch(batch);
+      const batchScores = await scoreBatch(batch, brand.companyName, productSummary);
       allScored.push(...batchScores.map((s) => ({ ...s, index: s.index + i })));
     } catch (e) {
       console.error(`[Watchtower] Failed to score batch starting at index ${i}:`, e);
