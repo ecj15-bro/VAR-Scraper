@@ -374,3 +374,12 @@ export async function getSettings(): Promise<Record<string, string>> {
   }
   return {};
 }
+
+export async function clearSessionData(): Promise<void> {
+  if (getStoreAdapter() === "kv") {
+    return (await kvStore()).kvClearSession(getCurrentSessionId());
+  }
+  // File mode: reset the entire store
+  _cache = { seenCompanies: [], reports: [] };
+  fileSave(_cache);
+}

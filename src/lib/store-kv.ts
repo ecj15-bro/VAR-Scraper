@@ -181,3 +181,22 @@ export async function kvSaveSettings(
 export async function kvGetSettings(sessionId: string): Promise<Record<string, string>> {
   return (await redis.get<Record<string, string>>(k(sessionId, "settings"))) ?? {};
 }
+
+// ─── SESSION CLEAR ────────────────────────────────────────────────────────────
+
+const SESSION_DATA_KEYS = [
+  "reports",
+  "seen-companies",
+  "search-history",
+  "search-evolution",
+  "knowledge-base",
+  "brand-config",
+  "brand-logo",
+  "business-profile",
+  "watchtower-config",
+  "settings",
+];
+
+export async function kvClearSession(sessionId: string): Promise<void> {
+  await Promise.all(SESSION_DATA_KEYS.map((name) => redis.del(k(sessionId, name))));
+}

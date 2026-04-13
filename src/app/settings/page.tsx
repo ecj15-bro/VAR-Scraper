@@ -53,7 +53,7 @@ interface WatchtowerConfig {
   redFlagPatterns: string[];
 }
 
-type Tab = "api" | "brand" | "business" | "demo";
+type Tab = "api" | "brand" | "business" | "demo" | "session";
 type TestState = "idle" | "testing" | "ok" | "fail";
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
@@ -865,15 +865,206 @@ function DemoTab() {
   );
 }
 
+// ─── SESSION TAB ──────────────────────────────────────────────────────────────
+
+function SessionTab() {
+  const [key, setKey] = useState("");
+  const [revealed, setRevealed] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const [importVal, setImportVal] = useState("");
+  const [importError, setImportError] = useState("");
+  const [clearInput, setClearInput] = useState("");
+  const [clearing, setClearing] = useState(false);
+  const [clearDone, setClearDone] = useState(false);
+
+  useEffect(() => {
+    try {
+      setKey(localStorage.getItem("var-hunter-session-id") ?? "");
+    } catch {}
+  }, []);
+
+  const handleCopy = async () => {
+    if (!key) return;
+    await navigator.clipboard.writeText(key);
+    setCopied(true);
+    try { localStorage.setItem("var-hunter-key-copied", "1"); } catch {}
+    setTimeout(() => setCopied(false), 2500);
+  };
+
+  const handleExport = () => {
+    const a = document.createElement("a");
+    a.href = "/api/export/json";
+    a.download = "";
+    a.click();
+  };
+
+  const handleImport = () => {
+    const trimmed = importVal.trim();
+    if (!/^[a-z0-9-]{8,64}$/i.test(trimmed)) {
+      setImportError("Invalid session key format.");
+      return;
+    }
+    setImportError("");
+    try { localStorage.setItem("var-hunter-session-id", trimmed); } catch {}
+    try { localStorage.setItem("var-hunter-modal-shown", "1"); } catch {}
+    const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
+    document.cookie = `session-id=${trimmed}; path=/; expires=${expires}; SameSite=Strict`;
+    window.location.href = "/";
+  };
+
+  const handleClear = async () => {
+    if (clearInput !== "DELETE") return;
+    setClearing(true);
+    try {
+      await fetch("/api/session/clear", { method: "POST" });
+    } catch {}
+    try {
+      localStorage.removeItem("var-hunter-session-id");
+      localStorage.removeItem("var-hunter-modal-shown");
+      localStorage.removeItem("var-hunter-key-copied");
+    } catch {}
+    document.cookie = "session-id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
+    setClearDone(true);
+    setTimeout(() => { window.location.href = "/"; }, 1200);
+  };
+
+  const maskedKey = key ? key.replace(/[a-z0-9]/gi, "•") : "";
+
+  return (
+    <div>
+      <p style={S.sectionTitle}>SESSION & DATA</p>
+
+      {/* Session key display */}
+      <div style={{ marginBottom: 28 }}>
+        <label style={S.label}>Your Session Key</label>
+        <p style={S.helper}>This key identifies your data. Keep it private and backed up.</p>
+        <div style={{ position: "relative" }}>
+          <input
+            readOnly
+            value={revealed ? key : maskedKey}
+            style={{ ...S.input, paddingRight: 80, letterSpacing: revealed ? "0.5px" : "2px", color: revealed ? "#00ff88" : "var(--muted)", fontFamily: "'Space Mono', monospace" }}
+          />
+          <button
+            type="button"
+            onClick={() => setRevealed((v) => !v)}
+            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13, padding: "4px 6px", fontFamily: "'Space Mono', monospace" }}
+          >
+            {revealed ? "hide" : "show"}
+          </button>
+        </div>
+        <button
+          onClick={handleCopy}
+          style={{ ...S.btnSecondary, marginTop: 10, padding: "8px 18px", fontSize: 12, color: copied ? "var(--accent)" : undefined }}
+        >
+          {copied ? "✓ Copied" : "Copy Key"}
+        </button>
+      </div>
+
+      {/* Export */}
+      <div style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid var(--border)" }}>
+        <label style={S.label}>Export My Data</label>
+        <p style={S.helper}>Download all reports, settings, and search history as a JSON file.</p>
+        <button onClick={handleExport} style={{ ...S.btnSecondary, padding: "8px 18px", fontSize: 12 }}>
+          ⬇ Export JSON
+        </button>
+      </div>
+
+      {/* Import session */}
+      <div style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid var(--border)" }}>
+        <label style={S.label}>Import Session from Another Device</label>
+        <p style={S.helper}>Paste a session key to load that session's data in this browser.</p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            type="text"
+            value={importVal}
+            onChange={(e) => { setImportVal(e.target.value); setImportError(""); }}
+            placeholder="Paste session key..."
+            style={{ ...S.input, flex: 1 }}
+          />
+          <button
+            onClick={handleImport}
+            disabled={!importVal.trim()}
+            style={{ ...S.btnPrimary, padding: "10px 18px", fontSize: 12, flexShrink: 0, opacity: importVal.trim() ? 1 : 0.4, cursor: importVal.trim() ? "pointer" : "not-allowed" }}
+          >
+            Load Session
+          </button>
+        </div>
+        {importError && (
+          <p style={{ margin: "8px 0 0 0", fontSize: 12, color: "var(--danger)" }}>{importError}</p>
+        )}
+      </div>
+
+      {/* Clear all data */}
+      <div>
+        <label style={{ ...S.label, color: "var(--danger)" }}>Clear All My Data</label>
+        <p style={S.helper}>
+          Permanently wipes all reports, settings, and search history for this session. This cannot be undone.
+        </p>
+        <div
+          style={{
+            background: "rgba(255,68,68,0.05)",
+            border: "1px solid rgba(255,68,68,0.2)",
+            borderRadius: 8,
+            padding: "20px 24px",
+          }}
+        >
+          <p style={{ fontSize: 13, color: "#b0b0c8", margin: "0 0 14px 0" }}>
+            Type <code style={{ color: "var(--danger)", background: "rgba(255,68,68,0.1)", padding: "1px 6px", borderRadius: 3 }}>DELETE</code> to confirm.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              type="text"
+              value={clearInput}
+              onChange={(e) => setClearInput(e.target.value)}
+              placeholder="DELETE"
+              style={{ ...S.input, flex: 1, borderColor: clearInput === "DELETE" ? "rgba(255,68,68,0.5)" : undefined }}
+            />
+            <button
+              onClick={handleClear}
+              disabled={clearInput !== "DELETE" || clearing}
+              style={{
+                padding: "10px 18px",
+                border: "1px solid rgba(255,68,68,0.4)",
+                borderRadius: 6,
+                background: clearInput === "DELETE" && !clearing ? "rgba(255,68,68,0.12)" : "transparent",
+                color: clearInput === "DELETE" && !clearing ? "var(--danger)" : "var(--muted)",
+                cursor: clearInput === "DELETE" && !clearing ? "pointer" : "not-allowed",
+                fontFamily: "'Space Mono', monospace",
+                fontSize: 12,
+                flexShrink: 0,
+                transition: "all 0.2s",
+              }}
+            >
+              {clearing ? "Clearing..." : "Clear All My Data"}
+            </button>
+          </div>
+          {clearDone && (
+            <p style={{ margin: "10px 0 0 0", fontSize: 12, color: "var(--accent)" }}>
+              Data cleared. Redirecting...
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── MAIN SETTINGS PAGE ───────────────────────────────────────────────────────
 
 export default function SettingsPage() {
   const router = useRouter();
   const searchParams = typeof window !== "undefined" ? new URLSearchParams(window.location.search) : null;
   const isFirstRun = searchParams?.get("firstRun") === "1";
-  const [activeTab, setActiveTab] = useState<Tab>(isFirstRun ? "api" : "api");
+  const [activeTab, setActiveTab] = useState<Tab>("api");
   const [onboardingStep, setOnboardingStep] = useState<0 | 1 | 2>(0); // 0=api, 1=brand, 2=business
   const [apiKeysSaved, setApiKeysSaved] = useState(false);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get("tab") as Tab | null;
+    const valid: Tab[] = ["api", "brand", "business", "demo", "session"];
+    if (tab && valid.includes(tab)) setActiveTab(tab);
+  }, []);
 
   const handleApiSaved = useCallback(() => {
     setApiKeysSaved(true);
@@ -888,6 +1079,7 @@ export default function SettingsPage() {
     { id: "brand", label: "Brand & Appearance" },
     { id: "business", label: "Your Business" },
     { id: "demo", label: "Demo Accounts" },
+    { id: "session", label: "Session & Data" },
   ];
 
   return (
@@ -960,6 +1152,7 @@ export default function SettingsPage() {
           }} />
         )}
         {activeTab === "demo" && <DemoTab />}
+        {activeTab === "session" && <SessionTab />}
 
         {/* First-run navigation */}
         {isFirstRun && (
