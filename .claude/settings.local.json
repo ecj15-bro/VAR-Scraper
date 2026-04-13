@@ -13,7 +13,11 @@
       "Bash(pkill -f \"next dev\")",
       "Bash(npm run:*)",
       "Bash(curl -s -X POST \"http://localhost:3001/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test2.pdf)",
-      "Bash(curl -s -X POST \"http://localhost:3003/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test2.pdf)"
+      "Bash(curl -s -X POST \"http://localhost:3003/api/export/pdf\" -H \"Content-Type: application/json\" -d '{\"id\":\"98f61253-5201-4100-ba2a-ce73087354d4\"}' -o /tmp/test2.pdf)",
+      "Bash(vercel link:*)",
+      "Bash(vercel env:*)",
+      "Bash(rm -f src/lib/store-kv.ts src/components/SessionInit.tsx)",
+      "Bash(rm -rf src/app/api/session src/app/api/settings)"
     ]
   }
 }

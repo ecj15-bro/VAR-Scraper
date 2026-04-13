@@ -53,7 +53,7 @@ interface WatchtowerConfig {
   redFlagPatterns: string[];
 }
 
-type Tab = "api" | "brand" | "business" | "demo" | "session";
+type Tab = "api" | "brand" | "business" | "demo";
 type TestState = "idle" | "testing" | "ok" | "fail";
 
 // ─── DESIGN TOKENS ───────────────────────────────────────────────────────────
@@ -214,18 +214,19 @@ function MultiSelect({ label, options, value, onChange }: {
 // ─── API KEYS TAB ─────────────────────────────────────────────────────────────
 
 function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
+  // Electron mode: keep full save functionality
   const [settings, setSettings] = useState<ApiSettings>({
     ANTHROPIC_API_KEY: "", SERPER_API_KEY: "", RESEND_API_KEY: "",
     REPORT_TO_EMAIL: "", RESEND_FROM: "", ENABLE_EMAIL_DELIVERY: "false",
   });
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [tests, setTests] = useState<Record<string, TestState>>({ anthropic: "idle", serper: "idle", resend: "idle" });
+  const [isElectron, setIsElectron] = useState(false);
 
   useEffect(() => {
-    async function load() {
-      if (typeof window !== "undefined" && window.electronAPI) {
-        const data = await window.electronAPI.getSettings();
+    if (typeof window !== "undefined" && window.electronAPI) {
+      setIsElectron(true);
+      window.electronAPI.getSettings().then((data) => {
         setSettings({
           ANTHROPIC_API_KEY: data.ANTHROPIC_API_KEY ?? "",
           SERPER_API_KEY: data.SERPER_API_KEY ?? "",
@@ -234,54 +235,15 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
           RESEND_FROM: data.RESEND_FROM ?? "",
           ENABLE_EMAIL_DELIVERY: data.ENABLE_EMAIL_DELIVERY ?? "false",
         });
-      } else {
-        // Web/KV mode: load from API (cookie carries session-id automatically)
-        try {
-          const sessionCookie = document.cookie.split("; ").find((c) => c.startsWith("session-id="))?.split("=")[1];
-          console.log("[settings load] cookie session-id:", sessionCookie);
-          const res = await fetch("/api/settings");
-          const data = await res.json();
-          console.log("[settings load] GET /api/settings response:", { ok: res.ok, hasAnthropicKey: !!data.ANTHROPIC_API_KEY, hasSerperKey: !!data.SERPER_API_KEY, raw: data });
-          if (res.ok) {
-            setSettings({
-              ANTHROPIC_API_KEY: data.ANTHROPIC_API_KEY ?? "",
-              SERPER_API_KEY: data.SERPER_API_KEY ?? "",
-              RESEND_API_KEY: data.RESEND_API_KEY ?? "",
-              REPORT_TO_EMAIL: data.REPORT_TO_EMAIL ?? "",
-              RESEND_FROM: data.RESEND_FROM ?? "",
-              ENABLE_EMAIL_DELIVERY: data.ENABLE_EMAIL_DELIVERY ?? "false",
-            });
-          }
-        } catch (e) { console.error("[settings load] error:", e); }
-      }
+      });
     }
-    load();
   }, []);
 
-  const missingRequired = !settings.ANTHROPIC_API_KEY.trim() || !settings.SERPER_API_KEY.trim();
-
   const handleSave = async () => {
+    if (!window.electronAPI) return;
     setSaving(true);
     try {
-      if (typeof window !== "undefined" && window.electronAPI) {
-        await window.electronAPI.saveSettings(settings);
-      } else {
-        // Web/KV mode: POST to API. Filter out placeholder masks so we don't
-        // overwrite a saved key with the display placeholder "••••••••".
-        const toSave = Object.fromEntries(
-          Object.entries(settings).filter(([, v]) => v !== "" && v !== "••••••••")
-        );
-        const sessionCookie = document.cookie.split("; ").find((c) => c.startsWith("session-id="))?.split("=")[1];
-        console.log("[settings save] cookie session-id:", sessionCookie, "keys being sent:", Object.keys(toSave), "hasAnthropicKey:", !!toSave.ANTHROPIC_API_KEY, "hasSerperKey:", !!toSave.SERPER_API_KEY);
-        const res = await fetch("/api/settings", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(toSave),
-        });
-        const result = await res.json().catch(() => ({}));
-        console.log("[settings save] POST /api/settings response:", { status: res.status, ok: res.ok, result });
-        if (!res.ok) throw new Error("Failed to save settings");
-      }
+      await window.electronAPI.saveSettings(settings);
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
       onSaved?.();
@@ -290,88 +252,39 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
     }
   };
 
-  const test = async (service: string, key: string) => {
-    if (!key) return;
-    setTests((p) => ({ ...p, [service]: "testing" }));
-    try {
-      let result: { ok: boolean };
-      if (typeof window !== "undefined" && window.electronAPI) {
-        result = await window.electronAPI.testConnection({ service, key });
-      } else {
-        const res = await fetch("/api/settings/test", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ service, key }) });
-        result = await res.json();
-      }
-      setTests((p) => ({ ...p, [service]: result.ok ? "ok" : "fail" }));
-    } catch {
-      setTests((p) => ({ ...p, [service]: "fail" }));
-    }
-    setTimeout(() => setTests((p) => ({ ...p, [service]: "idle" })), 5000);
-  };
+  if (!isElectron) {
+    return (
+      <div>
+        <div style={S.sectionTitle}>API KEYS</div>
+        <div style={{ background: "rgba(0,255,136,0.04)", border: "1px solid rgba(0,255,136,0.2)", borderRadius: 8, padding: "20px 24px" }}>
+          <p style={{ fontSize: 13, color: "#b0b0c8", lineHeight: 1.7, margin: "0 0 12px 0" }}>
+            Configure your API keys in <code style={{ color: "var(--accent)", background: "rgba(0,255,136,0.1)", padding: "1px 6px", borderRadius: 3 }}>.env.local</code> — copy <code style={{ color: "var(--muted)", background: "rgba(255,255,255,0.05)", padding: "1px 6px", borderRadius: 3 }}>.env.local.example</code> and fill in your values. Restart the app after saving.
+          </p>
+          <p style={{ fontSize: 12, color: "var(--muted)", margin: 0, fontFamily: "'Space Mono', monospace" }}>
+            Required: ANTHROPIC_API_KEY, SERPER_API_KEY
+          </p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div>
-      {missingRequired && (
-        <div style={{ background: "rgba(255,68,68,0.08)", border: "1px solid rgba(255,68,68,0.3)", borderRadius: 8, padding: "12px 16px", marginBottom: 28, fontSize: 13, color: "#ff8080", fontFamily: "'Space Mono', monospace" }}>
-          ⚠ Anthropic and Serper API keys are required to run the pipeline
-        </div>
-      )}
-
       <div style={S.sectionTitle}>REQUIRED</div>
-
-      {[
-        { key: "ANTHROPIC_API_KEY" as const, svc: "anthropic", label: "ANTHROPIC_API_KEY", helper: "Powers all Claude AI calls. Get yours at", link: "https://console.anthropic.com/settings/keys", linkText: "console.anthropic.com" },
-        { key: "SERPER_API_KEY" as const, svc: "serper", label: "SERPER_API_KEY", helper: "Web and news search. Free tier: 2,500/month. Get yours at", link: "https://serper.dev", linkText: "serper.dev" },
-      ].map(({ key, svc, label, helper, link, linkText }) => (
-        <div key={key} style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-          <div style={{ flex: 1 }}>
-            <SecretField label={label} helper={helper} link={link} linkText={linkText}
-              value={settings[key]} onChange={(v) => setSettings((p) => ({ ...p, [key]: v }))} saved={saved} />
-          </div>
-          <button onClick={() => test(svc, settings[key])} disabled={!settings[key] || tests[svc] === "testing"}
-            style={{ ...S.btnSecondary, marginBottom: 24, fontSize: 11, padding: "10px 14px", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-            Test {statusIcon(tests[svc])}
-          </button>
-        </div>
+      {(["ANTHROPIC_API_KEY", "SERPER_API_KEY"] as const).map((key) => (
+        <SecretField key={key} label={key} helper=""
+          value={settings[key]} onChange={(v) => setSettings((p) => ({ ...p, [key]: v }))} saved={saved} />
       ))}
-
       <div style={S.sectionTitle}>EMAIL DELIVERY (OPTIONAL)</div>
-
-      <div style={{ marginBottom: 24, display: "flex", alignItems: "center", gap: 12 }}>
-        <label style={S.label}>ENABLE_EMAIL_DELIVERY</label>
-        <button type="button" onClick={() => setSettings((p) => ({ ...p, ENABLE_EMAIL_DELIVERY: p.ENABLE_EMAIL_DELIVERY === "true" ? "false" : "true" }))}
-          style={{ width: 44, height: 24, borderRadius: 12, border: "none", background: settings.ENABLE_EMAIL_DELIVERY === "true" ? "var(--accent)" : "rgba(255,255,255,0.1)", cursor: "pointer", position: "relative", transition: "background 0.2s" }}>
-          <span style={{ position: "absolute", top: 3, left: settings.ENABLE_EMAIL_DELIVERY === "true" ? 23 : 3, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left 0.2s" }} />
-        </button>
-        <span style={{ fontSize: 12, color: "#6b6b85" }}>{settings.ENABLE_EMAIL_DELIVERY === "true" ? "On" : "Off"}</span>
-      </div>
-
-      <div style={{ display: "flex", alignItems: "flex-end", gap: 8 }}>
-        <div style={{ flex: 1 }}>
-          <SecretField label="RESEND_API_KEY" helper="Resend API key for email delivery. Get yours at" link="https://resend.com/api-keys" linkText="resend.com"
-            value={settings.RESEND_API_KEY} onChange={(v) => setSettings((p) => ({ ...p, RESEND_API_KEY: v }))} saved={saved} optional />
-        </div>
-        <button onClick={() => test("resend", settings.RESEND_API_KEY)} disabled={!settings.RESEND_API_KEY || tests.resend === "testing"}
-          style={{ ...S.btnSecondary, marginBottom: 24, fontSize: 11, padding: "10px 14px", display: "flex", alignItems: "center", gap: 6, whiteSpace: "nowrap" }}>
-          Test {statusIcon(tests.resend)}
-        </button>
-      </div>
-
-      <SecretField label="REPORT_TO_EMAIL" helper="Recipient address for VAR opportunity reports."
-        value={settings.REPORT_TO_EMAIL} onChange={(v) => setSettings((p) => ({ ...p, REPORT_TO_EMAIL: v }))} saved={saved} optional />
-
-      <SecretField label="RESEND_FROM" helper="Sender address from a verified Resend domain. Defaults to onboarding@resend.dev for testing."
-        value={settings.RESEND_FROM} onChange={(v) => setSettings((p) => ({ ...p, RESEND_FROM: v }))} saved={saved} optional />
-
+      <SecretField label="RESEND_API_KEY" helper="" value={settings.RESEND_API_KEY}
+        onChange={(v) => setSettings((p) => ({ ...p, RESEND_API_KEY: v }))} saved={saved} optional />
+      <SecretField label="REPORT_TO_EMAIL" helper="" value={settings.REPORT_TO_EMAIL}
+        onChange={(v) => setSettings((p) => ({ ...p, REPORT_TO_EMAIL: v }))} saved={saved} optional />
+      <SecretField label="RESEND_FROM" helper="" value={settings.RESEND_FROM}
+        onChange={(v) => setSettings((p) => ({ ...p, RESEND_FROM: v }))} saved={saved} optional />
       <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
-        <button onClick={handleSave} disabled={saving} style={{ ...S.btnPrimary, opacity: saving ? 0.6 : 1, cursor: saving ? "not-allowed" : "pointer" }}>
+        <button onClick={handleSave} disabled={saving} style={{ ...S.btnPrimary, opacity: saving ? 0.6 : 1 }}>
           {saving ? "Saving..." : saved ? "✓ Saved" : "Save API Keys"}
-        </button>
-        <button onClick={() => Promise.all([
-          settings.ANTHROPIC_API_KEY ? test("anthropic", settings.ANTHROPIC_API_KEY) : null,
-          settings.SERPER_API_KEY ? test("serper", settings.SERPER_API_KEY) : null,
-          settings.RESEND_API_KEY ? test("resend", settings.RESEND_API_KEY) : null,
-        ])} style={S.btnSecondary}>
-          Test All
         </button>
       </div>
     </div>
@@ -900,190 +813,6 @@ function DemoTab() {
   );
 }
 
-// ─── SESSION TAB ──────────────────────────────────────────────────────────────
-
-function SessionTab() {
-  const [key, setKey] = useState("");
-  const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [importVal, setImportVal] = useState("");
-  const [importError, setImportError] = useState("");
-  const [clearInput, setClearInput] = useState("");
-  const [clearing, setClearing] = useState(false);
-  const [clearDone, setClearDone] = useState(false);
-
-  useEffect(() => {
-    try {
-      setKey(localStorage.getItem("var-hunter-session-id") ?? "");
-    } catch {}
-  }, []);
-
-  const handleCopy = async () => {
-    if (!key) return;
-    await navigator.clipboard.writeText(key);
-    setCopied(true);
-    try { localStorage.setItem("var-hunter-key-copied", "1"); } catch {}
-    setTimeout(() => setCopied(false), 2500);
-  };
-
-  const handleExport = () => {
-    const a = document.createElement("a");
-    a.href = "/api/export/json";
-    a.download = "";
-    a.click();
-  };
-
-  const handleImport = () => {
-    const trimmed = importVal.trim();
-    if (!/^[a-z0-9-]{8,64}$/i.test(trimmed)) {
-      setImportError("Invalid session key format.");
-      return;
-    }
-    setImportError("");
-    try { localStorage.setItem("var-hunter-session-id", trimmed); } catch {}
-    try { localStorage.setItem("var-hunter-modal-shown", "1"); } catch {}
-    const expires = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toUTCString();
-    document.cookie = `session-id=${trimmed}; path=/; expires=${expires}; SameSite=Strict`;
-    window.location.href = "/";
-  };
-
-  const handleClear = async () => {
-    if (clearInput !== "DELETE") return;
-    setClearing(true);
-    try {
-      await fetch("/api/session/clear", { method: "POST" });
-    } catch {}
-    try {
-      localStorage.removeItem("var-hunter-session-id");
-      localStorage.removeItem("var-hunter-modal-shown");
-      localStorage.removeItem("var-hunter-key-copied");
-    } catch {}
-    document.cookie = "session-id=; path=/; expires=Thu, 01 Jan 1970 00:00:00 GMT";
-    setClearDone(true);
-    setTimeout(() => { window.location.href = "/"; }, 1200);
-  };
-
-  const maskedKey = key ? key.replace(/[a-z0-9]/gi, "•") : "";
-
-  return (
-    <div>
-      <p style={S.sectionTitle}>SESSION & DATA</p>
-
-      {/* Session key display */}
-      <div style={{ marginBottom: 28 }}>
-        <label style={S.label}>Your Session Key</label>
-        <p style={S.helper}>This key identifies your data. Keep it private and backed up.</p>
-        <div style={{ position: "relative" }}>
-          <input
-            readOnly
-            value={revealed ? key : maskedKey}
-            style={{ ...S.input, paddingRight: 80, letterSpacing: revealed ? "0.5px" : "2px", color: revealed ? "#00ff88" : "var(--muted)", fontFamily: "'Space Mono', monospace" }}
-          />
-          <button
-            type="button"
-            onClick={() => setRevealed((v) => !v)}
-            style={{ position: "absolute", right: 8, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", color: "var(--muted)", cursor: "pointer", fontSize: 13, padding: "4px 6px", fontFamily: "'Space Mono', monospace" }}
-          >
-            {revealed ? "hide" : "show"}
-          </button>
-        </div>
-        <button
-          onClick={handleCopy}
-          style={{ ...S.btnSecondary, marginTop: 10, padding: "8px 18px", fontSize: 12, color: copied ? "var(--accent)" : undefined }}
-        >
-          {copied ? "✓ Copied" : "Copy Key"}
-        </button>
-      </div>
-
-      {/* Export */}
-      <div style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid var(--border)" }}>
-        <label style={S.label}>Export My Data</label>
-        <p style={S.helper}>Download all reports, settings, and search history as a JSON file.</p>
-        <button onClick={handleExport} style={{ ...S.btnSecondary, padding: "8px 18px", fontSize: 12 }}>
-          ⬇ Export JSON
-        </button>
-      </div>
-
-      {/* Import session */}
-      <div style={{ marginBottom: 28, paddingBottom: 28, borderBottom: "1px solid var(--border)" }}>
-        <label style={S.label}>Import Session from Another Device</label>
-        <p style={S.helper}>Paste a session key to load that session's data in this browser.</p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            type="text"
-            value={importVal}
-            onChange={(e) => { setImportVal(e.target.value); setImportError(""); }}
-            placeholder="Paste session key..."
-            style={{ ...S.input, flex: 1 }}
-          />
-          <button
-            onClick={handleImport}
-            disabled={!importVal.trim()}
-            style={{ ...S.btnPrimary, padding: "10px 18px", fontSize: 12, flexShrink: 0, opacity: importVal.trim() ? 1 : 0.4, cursor: importVal.trim() ? "pointer" : "not-allowed" }}
-          >
-            Load Session
-          </button>
-        </div>
-        {importError && (
-          <p style={{ margin: "8px 0 0 0", fontSize: 12, color: "var(--danger)" }}>{importError}</p>
-        )}
-      </div>
-
-      {/* Clear all data */}
-      <div>
-        <label style={{ ...S.label, color: "var(--danger)" }}>Clear All My Data</label>
-        <p style={S.helper}>
-          Permanently wipes all reports, settings, and search history for this session. This cannot be undone.
-        </p>
-        <div
-          style={{
-            background: "rgba(255,68,68,0.05)",
-            border: "1px solid rgba(255,68,68,0.2)",
-            borderRadius: 8,
-            padding: "20px 24px",
-          }}
-        >
-          <p style={{ fontSize: 13, color: "#b0b0c8", margin: "0 0 14px 0" }}>
-            Type <code style={{ color: "var(--danger)", background: "rgba(255,68,68,0.1)", padding: "1px 6px", borderRadius: 3 }}>DELETE</code> to confirm.
-          </p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input
-              type="text"
-              value={clearInput}
-              onChange={(e) => setClearInput(e.target.value)}
-              placeholder="DELETE"
-              style={{ ...S.input, flex: 1, borderColor: clearInput === "DELETE" ? "rgba(255,68,68,0.5)" : undefined }}
-            />
-            <button
-              onClick={handleClear}
-              disabled={clearInput !== "DELETE" || clearing}
-              style={{
-                padding: "10px 18px",
-                border: "1px solid rgba(255,68,68,0.4)",
-                borderRadius: 6,
-                background: clearInput === "DELETE" && !clearing ? "rgba(255,68,68,0.12)" : "transparent",
-                color: clearInput === "DELETE" && !clearing ? "var(--danger)" : "var(--muted)",
-                cursor: clearInput === "DELETE" && !clearing ? "pointer" : "not-allowed",
-                fontFamily: "'Space Mono', monospace",
-                fontSize: 12,
-                flexShrink: 0,
-                transition: "all 0.2s",
-              }}
-            >
-              {clearing ? "Clearing..." : "Clear All My Data"}
-            </button>
-          </div>
-          {clearDone && (
-            <p style={{ margin: "10px 0 0 0", fontSize: 12, color: "var(--accent)" }}>
-              Data cleared. Redirecting...
-            </p>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── MAIN SETTINGS PAGE ───────────────────────────────────────────────────────
 
 export default function SettingsPage() {
@@ -1093,13 +822,6 @@ export default function SettingsPage() {
   const [activeTab, setActiveTab] = useState<Tab>("api");
   const [onboardingStep, setOnboardingStep] = useState<0 | 1 | 2>(0); // 0=api, 1=brand, 2=business
   const [apiKeysSaved, setApiKeysSaved] = useState(false);
-
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get("tab") as Tab | null;
-    const valid: Tab[] = ["api", "brand", "business", "demo", "session"];
-    if (tab && valid.includes(tab)) setActiveTab(tab);
-  }, []);
 
   const handleApiSaved = useCallback(() => {
     setApiKeysSaved(true);
@@ -1114,7 +836,6 @@ export default function SettingsPage() {
     { id: "brand", label: "Brand & Appearance" },
     { id: "business", label: "Your Business" },
     { id: "demo", label: "Demo Accounts" },
-    { id: "session", label: "Session & Data" },
   ];
 
   return (
@@ -1187,7 +908,6 @@ export default function SettingsPage() {
           }} />
         )}
         {activeTab === "demo" && <DemoTab />}
-        {activeTab === "session" && <SessionTab />}
 
         {/* First-run navigation */}
         {isFirstRun && (

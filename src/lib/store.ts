@@ -1,17 +1,9 @@
-// lib/store.ts — Adaptive store: file-based (Electron/dev) or Vercel KV (web).
-//
-// Adapter selection:
-//   - "kv"  : KV_REST_API_URL + KV_REST_API_TOKEN env vars are set (Vercel KV)
-//   - "file": Everything else (Electron, local dev)
-//
-// All public functions are async and delegate to the right backend.
-// Session namespacing for KV is handled via getCurrentSessionId() from session.ts,
-// which uses AsyncLocalStorage to propagate the session through the full call chain.
+// lib/store.ts — File-based storage for local/Electron mode.
+// All data is persisted to a single JSON file in os.tmpdir().
 
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { getCurrentSessionId } from "./session";
 
 const STORE_PATH = path.join(os.tmpdir(), "var-hunter-store.json");
 
@@ -129,23 +121,7 @@ export interface ReportEntry {
   briefing?: string;
 }
 
-// ─── ADAPTER DETECTION ───────────────────────────────────────────────────────
-
-export function getStoreAdapter(): "file" | "kv" {
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) return "kv";
-  return "file";
-}
-
-// ─── KV STORE (lazy dynamic import) ─────────────────────────────────────────
-
-let _kv: typeof import("./store-kv") | null = null;
-
-async function kvStore(): Promise<typeof import("./store-kv")> {
-  if (!_kv) _kv = await import("./store-kv");
-  return _kv;
-}
-
-// ─── FILE STORE — INTERNAL ───────────────────────────────────────────────────
+// ─── FILE STORE ───────────────────────────────────────────────────────────────
 
 interface FileStore {
   seenCompanies: string[];
@@ -177,21 +153,13 @@ function fileSave(store: FileStore) {
   fs.writeFileSync(STORE_PATH, JSON.stringify(store, null, 2));
 }
 
-// ─── PUBLIC ASYNC API ────────────────────────────────────────────────────────
-// All callers use these. In KV mode, the session ID is read from AsyncLocalStorage.
+// ─── PUBLIC API ───────────────────────────────────────────────────────────────
 
 export async function hasSeenCompany(name: string): Promise<boolean> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvHasSeenCompany(getCurrentSessionId(), name);
-  }
-  const store = fileLoad();
-  return store.seenCompanies.includes(name.toLowerCase().trim());
+  return fileLoad().seenCompanies.includes(name.toLowerCase().trim());
 }
 
 export async function markCompanySeen(name: string): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvMarkCompanySeen(getCurrentSessionId(), name);
-  }
   const store = fileLoad();
   const key = name.toLowerCase().trim();
   if (!store.seenCompanies.includes(key)) store.seenCompanies.push(key);
@@ -199,16 +167,10 @@ export async function markCompanySeen(name: string): Promise<void> {
 }
 
 export async function getSeenCompanies(): Promise<string[]> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetSeenCompanies(getCurrentSessionId());
-  }
   return fileLoad().seenCompanies;
 }
 
 export async function saveReport(report: Omit<ReportEntry, "id" | "timestamp">): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveReport(getCurrentSessionId(), report);
-  }
   const store = fileLoad();
   store.reports.unshift({
     ...report,
@@ -220,16 +182,10 @@ export async function saveReport(report: Omit<ReportEntry, "id" | "timestamp">):
 }
 
 export async function getReports(): Promise<ReportEntry[]> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetReports(getCurrentSessionId());
-  }
   return fileLoad().reports;
 }
 
 export async function deleteReport(id: string): Promise<boolean> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvDeleteReport(getCurrentSessionId(), id);
-  }
   const store = fileLoad();
   const before = store.reports.length;
   store.reports = store.reports.filter((r) => r.id !== id);
@@ -239,9 +195,6 @@ export async function deleteReport(id: string): Promise<boolean> {
 }
 
 export async function clearReports(): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvClearReports(getCurrentSessionId());
-  }
   const store = fileLoad();
   store.reports = [];
   store.seenCompanies = [];
@@ -249,9 +202,6 @@ export async function clearReports(): Promise<void> {
 }
 
 export async function saveSearchHistory(entry: SearchHistoryEntry): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveSearchHistory(getCurrentSessionId(), entry);
-  }
   const store = fileLoad();
   if (!store.searchHistory) store.searchHistory = [];
   store.searchHistory.push(entry);
@@ -261,9 +211,6 @@ export async function saveSearchHistory(entry: SearchHistoryEntry): Promise<void
 }
 
 export async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetSearchHistory(getCurrentSessionId());
-  }
   const store = fileLoad();
   if (!store.searchHistory) return [];
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -271,115 +218,73 @@ export async function getSearchHistory(): Promise<SearchHistoryEntry[]> {
 }
 
 export async function getUniqueQueryCount(): Promise<number> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetUniqueQueryCount(getCurrentSessionId());
-  }
   const store = fileLoad();
-  const queries = new Set((store.searchHistory ?? []).map((e) => e.query));
-  return queries.size;
+  return new Set((store.searchHistory ?? []).map((e) => e.query)).size;
 }
 
 export async function saveSearchEvolution(evolution: EvolvedSearchParams): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveSearchEvolution(getCurrentSessionId(), evolution);
-  }
   const store = fileLoad();
   store.lastSearchEvolution = evolution;
   fileSave(store);
 }
 
 export async function getSearchEvolution(): Promise<EvolvedSearchParams | null> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetSearchEvolution(getCurrentSessionId());
-  }
   return fileLoad().lastSearchEvolution ?? null;
 }
 
 export async function saveKnowledgeBase(kb: KnowledgeBase): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveKnowledgeBase(getCurrentSessionId(), kb);
-  }
   const store = fileLoad();
   store.knowledgeBase = kb;
   fileSave(store);
 }
 
 export async function getKnowledgeBase(): Promise<KnowledgeBase | null> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetKnowledgeBase(getCurrentSessionId());
-  }
   return fileLoad().knowledgeBase ?? null;
 }
 
 export async function saveBrandConfig(brand: BrandConfig): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveBrandConfig(getCurrentSessionId(), brand);
-  }
   const store = fileLoad();
   store.brandConfig = brand;
   fileSave(store);
 }
 
 export async function getStoredBrandConfig(): Promise<BrandConfig | null> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetBrandConfig(getCurrentSessionId());
-  }
   return fileLoad().brandConfig ?? null;
 }
 
 export async function saveBusinessProfile(profile: BusinessProfile): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveBusinessProfile(getCurrentSessionId(), profile);
-  }
   const store = fileLoad();
   store.businessProfile = profile;
   fileSave(store);
 }
 
 export async function getStoredBusinessProfile(): Promise<BusinessProfile | null> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetBusinessProfile(getCurrentSessionId());
-  }
   return fileLoad().businessProfile ?? null;
 }
 
 export async function saveWatchtowerConfig(config: WatchtowerConfig): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveWatchtowerConfig(getCurrentSessionId(), config);
-  }
   const store = fileLoad();
   store.watchtowerConfig = config;
   fileSave(store);
 }
 
 export async function getStoredWatchtowerConfig(): Promise<WatchtowerConfig | null> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetWatchtowerConfig(getCurrentSessionId());
-  }
   return fileLoad().watchtowerConfig ?? null;
 }
 
-// ─── KV SETTINGS (web BYOK mode only) ────────────────────────────────────────
+// ─── NO-OP STUBS (kept for API route compatibility) ──────────────────────────
 
-export async function saveSettings(settings: Record<string, string>): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvSaveSettings(getCurrentSessionId(), settings);
-  }
-  // File mode: settings are managed via electron-store IPC — no-op here
-}
+export async function saveSettings(_settings: Record<string, string>): Promise<void> {}
 
 export async function getSettings(): Promise<Record<string, string>> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvGetSettings(getCurrentSessionId());
-  }
   return {};
 }
 
 export async function clearSessionData(): Promise<void> {
-  if (getStoreAdapter() === "kv") {
-    return (await kvStore()).kvClearSession(getCurrentSessionId());
-  }
-  // File mode: reset the entire store
   _cache = { seenCompanies: [], reports: [] };
-  fileSave(_cache);
+  try { fs.writeFileSync(STORE_PATH, JSON.stringify(_cache, null, 2)); } catch {}
+}
+
+export function getStoreAdapter(): "file" | "kv" {
+  return "file";
 }

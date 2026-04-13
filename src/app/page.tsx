@@ -132,8 +132,6 @@ export default function Dashboard() {
   const [clearConfirm, setClearConfirm] = useState(false);
   const [searchEvolution, setSearchEvolution] = useState<EvolvedSearchParams | null>(null);
   const [totalUniqueQueries, setTotalUniqueQueries] = useState(0);
-  const [sessionKey, setSessionKey] = useState<string | null>(null);
-  const [keyCopied, setKeyCopied] = useState(true); // default true to avoid flash on non-web
 
   const fetchReports = useCallback(async () => {
     const res = await fetch("/api/reports");
@@ -163,16 +161,6 @@ export default function Dashboard() {
       }
     });
   }, [fetchReports]);
-
-  // Read session indicator from localStorage
-  useEffect(() => {
-    if ((window as any).electronAPI) return;
-    try {
-      const key = localStorage.getItem("var-hunter-session-id");
-      if (key) setSessionKey(key);
-      setKeyCopied(localStorage.getItem("var-hunter-key-copied") === "1");
-    } catch {}
-  }, []);
 
   // First-run: redirect to settings if running in Electron and keys are missing
   useEffect(() => {
@@ -399,48 +387,6 @@ export default function Dashboard() {
           >
             {status === "running" ? "RUNNING..." : "▶ RUN NOW"}
           </button>
-          {sessionKey && (
-            <div
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 5,
-                fontSize: 11,
-                color: "var(--muted)",
-                fontFamily: "'Space Mono', monospace",
-                background: "rgba(255,255,255,0.03)",
-                border: "1px solid var(--border)",
-                borderRadius: 6,
-                padding: "6px 10px",
-              }}
-            >
-              {!keyCopied && (
-                <span
-                  title="You haven't copied your session key yet"
-                  style={{ color: "#ffaa00", fontSize: 12, lineHeight: 1 }}
-                >
-                  ⚠
-                </span>
-              )}
-              <span>Session: {sessionKey.slice(0, 6)}...{sessionKey.slice(-3)}</span>
-              <button
-                onClick={() => router.push("/settings?tab=session")}
-                title="Session & Data"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  padding: "1px 3px",
-                  color: "var(--muted)",
-                  fontSize: 13,
-                  lineHeight: 1,
-                  marginLeft: 2,
-                }}
-              >
-                ⚙
-              </button>
-            </div>
-          )}
           <button
             onClick={() => router.push("/settings")}
             title="Settings"

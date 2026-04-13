@@ -1,6 +1,5 @@
 // lib/email.ts — Report delivery via Resend
 
-import { getConfig } from "./config";
 import { getBrandConfig } from "./brand";
 
 export interface VARReport {
@@ -17,17 +16,15 @@ export interface VARReport {
 }
 
 export async function sendReport(report: VARReport): Promise<void> {
-  const config = await getConfig();
-
-  if (config.ENABLE_EMAIL_DELIVERY !== "true") {
+  if (process.env.ENABLE_EMAIL_DELIVERY !== "true") {
     console.log(`[sendReport] Email delivery disabled — report saved to dashboard only`);
     return;
   }
 
   const brand = await getBrandConfig();
-  const apiKey = config.RESEND_API_KEY;
-  const toEmail = config.REPORT_TO_EMAIL;
-  const fromEmail = config.RESEND_FROM || `reports@${brand.companyName.toLowerCase().replace(/\s+/g, "")}.com`;
+  const apiKey = process.env.RESEND_API_KEY;
+  const toEmail = process.env.REPORT_TO_EMAIL;
+  const fromEmail = process.env.RESEND_FROM || `reports@${brand.companyName.toLowerCase().replace(/\s+/g, "")}.com`;
 
   if (!apiKey) throw new Error("RESEND_API_KEY not set");
   if (!toEmail) throw new Error("REPORT_TO_EMAIL not set");

@@ -1,4 +1,6 @@
-// lib/config.ts — Unified config reader for Electron and Vercel/local dev
+// lib/config.ts — Reads config exclusively from process.env.
+// For Electron, env vars are injected via electron-store at startup.
+// For local dev, copy .env.local.example to .env.local and fill in values.
 
 export interface AppConfig {
   ANTHROPIC_API_KEY: string;
@@ -31,56 +33,8 @@ declare global {
   }
 }
 
-function isElectronMain(): boolean {
-  return (
-    typeof process !== "undefined" &&
-    typeof process.versions !== "undefined" &&
-    !!process.versions.electron
-  );
-}
-
-/** Returns all config keys from the appropriate source. */
+/** Returns config from process.env. Always synchronous — no I/O. */
 export async function getConfig(): Promise<AppConfig> {
-  // Browser context inside Electron — use IPC bridge
-  if (typeof window !== "undefined" && window.electronAPI) {
-    return window.electronAPI.getSettings();
-  }
-
-  // Server context inside Electron main process — read process.env
-  if (isElectronMain()) {
-    return {
-      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
-      SERPER_API_KEY: process.env.SERPER_API_KEY ?? "",
-      RESEND_API_KEY: process.env.RESEND_API_KEY ?? "",
-      REPORT_TO_EMAIL: process.env.REPORT_TO_EMAIL ?? "",
-      RESEND_FROM: process.env.RESEND_FROM ?? "",
-      ENABLE_EMAIL_DELIVERY: process.env.ENABLE_EMAIL_DELIVERY ?? "false",
-    };
-  }
-
-  // Upstash Redis web mode — merge per-session KV settings over env vars
-  if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
-    try {
-      const { getSettings } = await import("./store");
-      const { getCurrentSessionId } = await import("./session");
-      const sessionId = getCurrentSessionId();
-      console.log("[config] KV mode, sessionId:", sessionId);
-      const stored = await getSettings();
-      console.log("[config] KV stored keys:", Object.keys(stored), "hasAnthropicKey:", !!stored.ANTHROPIC_API_KEY, "hasSerperKey:", !!stored.SERPER_API_KEY);
-      return {
-        ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
-        SERPER_API_KEY: stored.SERPER_API_KEY || process.env.SERPER_API_KEY || "",
-        RESEND_API_KEY: stored.RESEND_API_KEY || process.env.RESEND_API_KEY || "",
-        REPORT_TO_EMAIL: stored.REPORT_TO_EMAIL || process.env.REPORT_TO_EMAIL || "",
-        RESEND_FROM: stored.RESEND_FROM || process.env.RESEND_FROM || "",
-        ENABLE_EMAIL_DELIVERY: stored.ENABLE_EMAIL_DELIVERY || process.env.ENABLE_EMAIL_DELIVERY || "false",
-      };
-    } catch {
-      // Fall through to env-var-only if KV read fails
-    }
-  }
-
-  // Vercel / local dev without KV — read process.env
   return {
     ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
     SERPER_API_KEY: process.env.SERPER_API_KEY ?? "",
