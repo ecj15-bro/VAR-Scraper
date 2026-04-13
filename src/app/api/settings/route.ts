@@ -1,22 +1,49 @@
-// api/settings — Read/write settings for non-Electron context (Vercel/local dev).
-//
-// In Electron, settings are handled via IPC (electron-store); this route is unused.
-//
-// In Vercel web mode with KV: settings are stored per-session in KV, allowing
-// each user to bring their own API keys (BYOK). Keys are never exposed in responses.
+// api/settings — Read/write per-session API keys in KV (web/Vercel mode).
+// Constructs the Redis client directly from env vars to avoid adapter detection issues.
 
 import { NextRequest, NextResponse } from "next/server";
-import { getStoreAdapter, getSettings, saveSettings } from "@/lib/store";
-import { extractSessionId, runWithSession } from "@/lib/session";
+import { Redis } from "@upstash/redis";
+import { extractSessionId } from "@/lib/session";
+
+const ALLOWED_KEYS = [
+  "ANTHROPIC_API_KEY",
+  "SERPER_API_KEY",
+  "RESEND_API_KEY",
+  "REPORT_TO_EMAIL",
+  "RESEND_FROM",
+  "ENABLE_EMAIL_DELIVERY",
+];
+
+function getRedis(): Redis | null {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  console.log("[settings] UPSTASH_REDIS_REST_URL present:", !!url, "UPSTASH_REDIS_REST_TOKEN present:", !!token);
+  if (!url || !token) return null;
+  return new Redis({ url, token });
+}
 
 export async function GET(req: NextRequest) {
   const sessionId = extractSessionId(req);
-  console.log("[settings GET] sessionId:", sessionId, "adapter:", getStoreAdapter());
+  console.log("[settings GET] sessionId:", sessionId);
 
-  if (getStoreAdapter() === "kv") {
-    // Web mode: return per-session settings from KV (keys are masked)
-    const stored = await runWithSession(sessionId, () => getSettings());
-    console.log("[settings GET] KV returned keys:", Object.keys(stored), "hasAnthropicKey:", !!stored.ANTHROPIC_API_KEY, "hasSerperKey:", !!stored.SERPER_API_KEY);
+  const redis = getRedis();
+  if (!redis) {
+    // No KV — return env vars (masked)
+    console.log("[settings GET] no KV, returning env vars");
+    return NextResponse.json({
+      ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? "••••••••" : "",
+      SERPER_API_KEY: process.env.SERPER_API_KEY ? "••••••••" : "",
+      RESEND_API_KEY: process.env.RESEND_API_KEY ? "••••••••" : "",
+      REPORT_TO_EMAIL: process.env.REPORT_TO_EMAIL ?? "",
+      RESEND_FROM: process.env.RESEND_FROM ?? "",
+      ENABLE_EMAIL_DELIVERY: process.env.ENABLE_EMAIL_DELIVERY ?? "false",
+    });
+  }
+
+  try {
+    const raw = await redis.get<Record<string, string>>(`${sessionId}:settings`);
+    const stored: Record<string, string> = raw ?? {};
+    console.log("[settings GET] KV stored keys:", Object.keys(stored), "hasAnthropicKey:", !!stored.ANTHROPIC_API_KEY, "hasSerperKey:", !!stored.SERPER_API_KEY);
     return NextResponse.json({
       ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY ? "••••••••" : (process.env.ANTHROPIC_API_KEY ? "••••••••" : ""),
       SERPER_API_KEY: stored.SERPER_API_KEY ? "••••••••" : (process.env.SERPER_API_KEY ? "••••••••" : ""),
@@ -25,45 +52,38 @@ export async function GET(req: NextRequest) {
       RESEND_FROM: stored.RESEND_FROM ?? process.env.RESEND_FROM ?? "",
       ENABLE_EMAIL_DELIVERY: stored.ENABLE_EMAIL_DELIVERY ?? process.env.ENABLE_EMAIL_DELIVERY ?? "false",
     });
+  } catch (e: any) {
+    console.error("[settings GET] KV error:", e.message);
+    return NextResponse.json({ error: e.message }, { status: 500 });
   }
-
-  // File mode (local dev without KV): return env vars (masked)
-  return NextResponse.json({
-    ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ? "••••••••" : "",
-    SERPER_API_KEY: process.env.SERPER_API_KEY ? "••••••••" : "",
-    RESEND_API_KEY: process.env.RESEND_API_KEY ? "••••••••" : "",
-    REPORT_TO_EMAIL: process.env.REPORT_TO_EMAIL ?? "",
-    RESEND_FROM: process.env.RESEND_FROM ?? "",
-    ENABLE_EMAIL_DELIVERY: process.env.ENABLE_EMAIL_DELIVERY ?? "false",
-  });
 }
 
 export async function POST(req: NextRequest) {
-  console.log("[settings POST] adapter:", getStoreAdapter());
-  console.log("[settings POST] UPSTASH_REDIS_REST_URL present:", !!process.env.UPSTASH_REDIS_REST_URL);
-  console.log("[settings POST] UPSTASH_REDIS_REST_TOKEN present:", !!process.env.UPSTASH_REDIS_REST_TOKEN);
   const sessionId = extractSessionId(req);
-  console.log("[settings POST] sessionId:", sessionId, "adapter:", getStoreAdapter());
+  console.log("[settings POST] sessionId:", sessionId);
 
-  if (getStoreAdapter() === "kv") {
-    try {
-      const body = await req.json() as Record<string, string>;
-      // Only allow known keys
-      const allowed = ["ANTHROPIC_API_KEY", "SERPER_API_KEY", "RESEND_API_KEY", "REPORT_TO_EMAIL", "RESEND_FROM", "ENABLE_EMAIL_DELIVERY"];
-      const filtered = Object.fromEntries(
-        Object.entries(body).filter(([k]) => allowed.includes(k))
-      );
-      console.log("[settings POST] saving keys:", Object.keys(filtered), "hasAnthropicKey:", !!filtered.ANTHROPIC_API_KEY, "hasSerperKey:", !!filtered.SERPER_API_KEY);
-      await runWithSession(sessionId, () => saveSettings(filtered));
-      console.log("[settings POST] KV write done for session:", sessionId);
-      return NextResponse.json({ ok: true });
-    } catch (e: any) {
-      return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
-    }
+  const redis = getRedis();
+  if (!redis) {
+    console.error("[settings POST] KV not configured");
+    return NextResponse.json({ ok: false, message: "KV not configured" }, { status: 503 });
   }
 
-  return NextResponse.json(
-    { ok: false, message: "Settings can only be saved via the Electron desktop app or by setting environment variables." },
-    { status: 400 }
-  );
+  try {
+    const body = (await req.json()) as Record<string, string>;
+    const filtered = Object.fromEntries(
+      Object.entries(body).filter(([k]) => ALLOWED_KEYS.includes(k))
+    );
+    console.log("[settings POST] saving keys:", Object.keys(filtered), "hasAnthropicKey:", !!filtered.ANTHROPIC_API_KEY, "hasSerperKey:", !!filtered.SERPER_API_KEY);
+
+    // Merge with existing so a partial save doesn't wipe other keys
+    const existing = (await redis.get<Record<string, string>>(`${sessionId}:settings`)) ?? {};
+    const merged = { ...existing, ...filtered };
+    await redis.set(`${sessionId}:settings`, merged);
+
+    console.log("[settings POST] KV write done for session:", sessionId);
+    return NextResponse.json({ ok: true });
+  } catch (e: any) {
+    console.error("[settings POST] error:", e.message);
+    return NextResponse.json({ ok: false, error: e.message }, { status: 500 });
+  }
 }
