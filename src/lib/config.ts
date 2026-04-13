@@ -62,7 +62,11 @@ export async function getConfig(): Promise<AppConfig> {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     try {
       const { getSettings } = await import("./store");
+      const { getCurrentSessionId } = await import("./session");
+      const sessionId = getCurrentSessionId();
+      console.log("[config] KV mode, sessionId:", sessionId);
       const stored = await getSettings();
+      console.log("[config] KV stored keys:", Object.keys(stored), "hasAnthropicKey:", !!stored.ANTHROPIC_API_KEY, "hasSerperKey:", !!stored.SERPER_API_KEY);
       return {
         ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
         SERPER_API_KEY: stored.SERPER_API_KEY || process.env.SERPER_API_KEY || "",

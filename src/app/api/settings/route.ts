@@ -11,10 +11,12 @@ import { extractSessionId, runWithSession } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
   const sessionId = extractSessionId(req);
+  console.log("[settings GET] sessionId:", sessionId, "adapter:", getStoreAdapter());
 
   if (getStoreAdapter() === "kv") {
     // Web mode: return per-session settings from KV (keys are masked)
     const stored = await runWithSession(sessionId, () => getSettings());
+    console.log("[settings GET] KV returned keys:", Object.keys(stored), "hasAnthropicKey:", !!stored.ANTHROPIC_API_KEY, "hasSerperKey:", !!stored.SERPER_API_KEY);
     return NextResponse.json({
       ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY ? "••••••••" : (process.env.ANTHROPIC_API_KEY ? "••••••••" : ""),
       SERPER_API_KEY: stored.SERPER_API_KEY ? "••••••••" : (process.env.SERPER_API_KEY ? "••••••••" : ""),
@@ -37,7 +39,11 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
+  console.log("[settings POST] adapter:", getStoreAdapter());
+  console.log("[settings POST] UPSTASH_REDIS_REST_URL present:", !!process.env.UPSTASH_REDIS_REST_URL);
+  console.log("[settings POST] UPSTASH_REDIS_REST_TOKEN present:", !!process.env.UPSTASH_REDIS_REST_TOKEN);
   const sessionId = extractSessionId(req);
+  console.log("[settings POST] sessionId:", sessionId, "adapter:", getStoreAdapter());
 
   if (getStoreAdapter() === "kv") {
     try {
@@ -47,7 +53,9 @@ export async function POST(req: NextRequest) {
       const filtered = Object.fromEntries(
         Object.entries(body).filter(([k]) => allowed.includes(k))
       );
+      console.log("[settings POST] saving keys:", Object.keys(filtered), "hasAnthropicKey:", !!filtered.ANTHROPIC_API_KEY, "hasSerperKey:", !!filtered.SERPER_API_KEY);
       await runWithSession(sessionId, () => saveSettings(filtered));
+      console.log("[settings POST] KV write done for session:", sessionId);
       return NextResponse.json({ ok: true });
     } catch (e: any) {
       return NextResponse.json({ ok: false, error: e.message }, { status: 500 });

@@ -237,9 +237,12 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
       } else {
         // Web/KV mode: load from API (cookie carries session-id automatically)
         try {
+          const sessionCookie = document.cookie.split("; ").find((c) => c.startsWith("session-id="))?.split("=")[1];
+          console.log("[settings load] cookie session-id:", sessionCookie);
           const res = await fetch("/api/settings");
+          const data = await res.json();
+          console.log("[settings load] GET /api/settings response:", { ok: res.ok, hasAnthropicKey: !!data.ANTHROPIC_API_KEY, hasSerperKey: !!data.SERPER_API_KEY, raw: data });
           if (res.ok) {
-            const data = await res.json();
             setSettings({
               ANTHROPIC_API_KEY: data.ANTHROPIC_API_KEY ?? "",
               SERPER_API_KEY: data.SERPER_API_KEY ?? "",
@@ -249,7 +252,7 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
               ENABLE_EMAIL_DELIVERY: data.ENABLE_EMAIL_DELIVERY ?? "false",
             });
           }
-        } catch {}
+        } catch (e) { console.error("[settings load] error:", e); }
       }
     }
     load();
@@ -268,11 +271,15 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
         const toSave = Object.fromEntries(
           Object.entries(settings).filter(([, v]) => v !== "" && v !== "••••••••")
         );
+        const sessionCookie = document.cookie.split("; ").find((c) => c.startsWith("session-id="))?.split("=")[1];
+        console.log("[settings save] cookie session-id:", sessionCookie, "keys being sent:", Object.keys(toSave), "hasAnthropicKey:", !!toSave.ANTHROPIC_API_KEY, "hasSerperKey:", !!toSave.SERPER_API_KEY);
         const res = await fetch("/api/settings", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(toSave),
         });
+        const result = await res.json().catch(() => ({}));
+        console.log("[settings save] POST /api/settings response:", { status: res.status, ok: res.ok, result });
         if (!res.ok) throw new Error("Failed to save settings");
       }
       setSaved(true);
