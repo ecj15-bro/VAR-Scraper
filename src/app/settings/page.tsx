@@ -234,6 +234,22 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
           RESEND_FROM: data.RESEND_FROM ?? "",
           ENABLE_EMAIL_DELIVERY: data.ENABLE_EMAIL_DELIVERY ?? "false",
         });
+      } else {
+        // Web/KV mode: load from API (cookie carries session-id automatically)
+        try {
+          const res = await fetch("/api/settings");
+          if (res.ok) {
+            const data = await res.json();
+            setSettings({
+              ANTHROPIC_API_KEY: data.ANTHROPIC_API_KEY ?? "",
+              SERPER_API_KEY: data.SERPER_API_KEY ?? "",
+              RESEND_API_KEY: data.RESEND_API_KEY ?? "",
+              REPORT_TO_EMAIL: data.REPORT_TO_EMAIL ?? "",
+              RESEND_FROM: data.RESEND_FROM ?? "",
+              ENABLE_EMAIL_DELIVERY: data.ENABLE_EMAIL_DELIVERY ?? "false",
+            });
+          }
+        } catch {}
       }
     }
     load();
@@ -246,6 +262,18 @@ function ApiKeysTab({ onSaved }: { onSaved?: () => void }) {
     try {
       if (typeof window !== "undefined" && window.electronAPI) {
         await window.electronAPI.saveSettings(settings);
+      } else {
+        // Web/KV mode: POST to API. Filter out placeholder masks so we don't
+        // overwrite a saved key with the display placeholder "••••••••".
+        const toSave = Object.fromEntries(
+          Object.entries(settings).filter(([, v]) => v !== "" && v !== "••••••••")
+        );
+        const res = await fetch("/api/settings", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(toSave),
+        });
+        if (!res.ok) throw new Error("Failed to save settings");
       }
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);

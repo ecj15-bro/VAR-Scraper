@@ -3,18 +3,12 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { getConfig } from "./config";
 
-// Lazy singleton: reuse the same client across calls within a process lifetime.
-// Re-instantiated only if the API key changes (e.g. after the user updates settings).
-let _client: Anthropic | null = null;
-let _clientKey = "";
-
+// Client is constructed per-call so each request uses its own session's API key.
+// Module-level caching is intentionally avoided: in Fluid Compute, a shared instance
+// would bleed one user's key into concurrent requests from other sessions.
 async function getClient(): Promise<Anthropic> {
   const config = await getConfig();
-  if (!_client || _clientKey !== config.ANTHROPIC_API_KEY) {
-    _client = new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
-    _clientKey = config.ANTHROPIC_API_KEY;
-  }
-  return _client;
+  return new Anthropic({ apiKey: config.ANTHROPIC_API_KEY });
 }
 
 export async function askClaude(systemPrompt: string, userMessage: string): Promise<string> {

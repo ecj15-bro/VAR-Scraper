@@ -62,8 +62,6 @@ export async function getConfig(): Promise<AppConfig> {
   if (process.env.UPSTASH_REDIS_REST_URL && process.env.UPSTASH_REDIS_REST_TOKEN) {
     try {
       const { getSettings } = await import("./store");
-      const { getCurrentSessionId } = await import("./session");
-      const sessionId = getCurrentSessionId();
       const stored = await getSettings();
       return {
         ANTHROPIC_API_KEY: stored.ANTHROPIC_API_KEY || process.env.ANTHROPIC_API_KEY || "",
