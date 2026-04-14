@@ -435,51 +435,47 @@ function renderFitAssessment(l: Layout, report: ReportEntry) {
   const flags   = report.varFitScore?.redFlags   ?? [];
   if (reasons.length === 0 && flags.length === 0) return;
 
-  const HALF = (CW - 20) / 2;
-  const RX   = ML + HALF + 20;
+  const accent = l.chromeOpts.accentColor || GREEN;
 
-  // Estimate total block height for the two-column section
-  const reasonText = reasons.map(r => `• ${r}`).join("\n");
-  const flagText   = flags.map(f => `• ${f}`).join("\n");
-  const lh  = reasonText ? l.measure(reasonText, HALF, 9.5, 1.5) + 18 : 0;
-  const rh  = flagText   ? l.measure(flagText,   HALF, 9.5, 1.5) + 18 : 0;
-  const blockH = Math.max(lh, rh);
+  l.sectionHeader("FIT ASSESSMENT");
 
-  l.sectionHeader("FIT ASSESSMENT", Math.min(blockH + 8, SECTION_GUARD));
-  const sy = l.y;
-
-  // Left: why it fits
+  // WHY IT FITS
   if (reasons.length > 0) {
+    l.ensureSpace(30);
+    l.doc.rect(ML, l.y, 3, 13).fill(accent);
     l.doc.font(F.bold).fontSize(8).fillColor(GREEN)
-       .text("WHY IT FITS", ML, sy, { characterSpacing: 0.8, lineBreak: false });
-    let ly = sy + 14;
+       .text("WHY IT FITS", ML + 10, l.y + 2, { characterSpacing: 0.8, lineBreak: false });
+    l.y += 18;
     for (const r of reasons) {
       l.doc.font(F.reg).fontSize(9.5).fillColor(BODY)
-         .text(`• ${r}`, ML, ly, { width: HALF, lineGap: 1.5 });
-      ly = l.doc.y + 3;
+         .text(`• ${r}`, ML, l.y, { width: CW, lineGap: 1.5 });
+      l.sync();
+      l.y += 3;
     }
     if (report.varFitScore?.strategicNotes) {
+      l.y += 4;
       l.doc.font(F.it).fontSize(9).fillColor(MUTED)
-         .text(report.varFitScore.strategicNotes, ML, ly + 4, { width: HALF });
-      ly = l.doc.y;
+         .text(report.varFitScore.strategicNotes, ML, l.y, { width: CW, lineGap: 2 });
+      l.sync();
     }
-    l.y = ly;
+    l.y += 10;
   }
 
-  // Right: red flags
+  // RED FLAGS
   if (flags.length > 0) {
+    l.ensureSpace(30);
+    l.doc.rect(ML, l.y, 3, 13).fill(AMBER);
     l.doc.font(F.bold).fontSize(8).fillColor(AMBER)
-       .text("RED FLAGS", RX, sy, { characterSpacing: 0.8, lineBreak: false });
-    let ry = sy + 14;
+       .text("RED FLAGS", ML + 10, l.y + 2, { characterSpacing: 0.8, lineBreak: false });
+    l.y += 18;
     for (const f of flags) {
       l.doc.font(F.reg).fontSize(9.5).fillColor(BODY)
-         .text(`• ${f}`, RX, ry, { width: HALF, lineGap: 1.5 });
-      ry = l.doc.y + 3;
+         .text(`• ${f}`, ML, l.y, { width: CW, lineGap: 1.5 });
+      l.sync();
+      l.y += 3;
     }
-    l.y = Math.max(l.y, ry);
+    l.y += 4;
   }
-
-  l.y += 6;
 }
 
 function renderHookBlock(l: Layout, text: string) {
