@@ -193,9 +193,16 @@ export default function Dashboard() {
     setRunResult(null);
     setStageIdx(0);
 
-    const interval = setInterval(() => {
+    const stageInterval = setInterval(() => {
       setStageIdx((i) => Math.min(i + 1, STAGE_LABELS.length - 1));
     }, 7000);
+
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+
+    const cleanup = () => {
+      clearInterval(stageInterval);
+      if (pollInterval) clearInterval(pollInterval);
+    };
 
     try {
       const res = await fetch("/api/run", {
@@ -204,23 +211,44 @@ export default function Dashboard() {
         body: JSON.stringify({ dryRun }),
       });
       const data = await res.json();
-      clearInterval(interval);
 
       if (data.error) throw new Error(data.error);
 
-      setRunResult({
-        processed: data.processed,
-        skipped: data.skipped,
-        contextFiltered: data.contextFiltered ?? 0,
-        errors: data.errors,
-        totalLeadsFound: data.totalLeadsFound,
-        avgRelevanceScore: data.avgRelevanceScore,
+      const { jobId } = data as { accepted: boolean; jobId: string };
+
+      await new Promise<void>((resolve, reject) => {
+        pollInterval = setInterval(async () => {
+          try {
+            const statusRes = await fetch(`/api/status/${jobId}`);
+            if (!statusRes.ok) return;
+            const job = await statusRes.json();
+
+            if (job.status === "complete") {
+              cleanup();
+              const r = job.result;
+              setRunResult({
+                processed: r.processed,
+                skipped: r.skipped,
+                contextFiltered: r.contextFiltered ?? 0,
+                errors: r.errors,
+                totalLeadsFound: r.totalLeadsFound,
+                avgRelevanceScore: r.avgRelevanceScore,
+              });
+              setStatus("done");
+              setLastRun(new Date().toLocaleString());
+              fetchReports();
+              resolve();
+            } else if (job.status === "error") {
+              cleanup();
+              reject(new Error(job.error ?? "Pipeline error"));
+            }
+          } catch {
+            // Keep polling on transient network errors
+          }
+        }, 3000);
       });
-      setStatus("done");
-      setLastRun(new Date().toLocaleString());
-      await fetchReports();
     } catch {
-      clearInterval(interval);
+      cleanup();
       setStatus("error");
     }
   };

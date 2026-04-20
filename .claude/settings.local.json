@@ -17,7 +17,12 @@
       "Bash(vercel link:*)",
       "Bash(vercel env:*)",
       "Bash(rm -f src/lib/store-kv.ts src/components/SessionInit.tsx)",
-      "Bash(rm -rf src/app/api/session src/app/api/settings)"
+      "Bash(rm -rf src/app/api/session src/app/api/settings)",
+      "Bash(fly apps *)",
+      "Bash(fly deploy *)",
+      "Bash(grep -c 'from \"@/lib/store\"' src/agents/*.ts)",
+      "Bash(grep -c 'from \"@/lib/email\"' src/agents/*.ts)",
+      "Bash(npx skills *)"
     ]
   }
 }

@@ -3,12 +3,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { runOrchestrator } from "@/agents/orchestrator";
 import { runWithSession } from "@/lib/session";
+import { getEnv } from "@/lib/env";
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (authHeader !== `Bearer ${getEnv().cronSecret}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

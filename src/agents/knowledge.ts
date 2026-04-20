@@ -7,7 +7,7 @@
 
 import { searchNews, searchWeb, SearchResult } from "@/lib/search";
 import { askClaude } from "@/lib/claude";
-import { saveKnowledgeBase, getKnowledgeBase, KnowledgeBase } from "@/lib/store";
+import { saveKnowledgeBase, getKnowledgeBase, KnowledgeBase } from "@/lib/data";
 import { getBrandConfig } from "@/lib/brand";
 import { getBusinessProfile } from "@/lib/business-profile";
 

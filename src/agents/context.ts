@@ -11,7 +11,7 @@ import {
   EvolvedSearchParams,
   WatchtowerConfig,
   WatchtowerSearchCategory,
-} from "@/lib/store";
+} from "@/lib/data";
 import { getBrandConfig } from "@/lib/brand";
 import { getBusinessProfile, buildProductKnowledgeBlock, BusinessProfile } from "@/lib/business-profile";
 

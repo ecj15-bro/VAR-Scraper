@@ -1,8 +1,8 @@
 // src/agents/salesman.ts — Stage 3: Generate personalized pitches and deliver the final report
 
 import { askClaude } from "@/lib/claude";
-import { sendReport } from "@/lib/email";
-import { saveReport, markCompanySeen } from "@/lib/store";
+import { deliverReport } from "@/lib/deliver";
+import { saveReport, markCompanySeen } from "@/lib/data";
 import { getBrandConfig, BrandConfig } from "@/lib/brand";
 import { getBusinessProfile, getWatchtowerConfig, buildProductKnowledgeBlock, BusinessProfile, WatchtowerConfig } from "@/lib/business-profile";
 import { createConcurrencyLimiter } from "@/lib/concurrency";
@@ -167,7 +167,7 @@ Return ONLY a JSON object (no markdown, no explanation):
     await markCompanySeen(result.companyName);
 
     try {
-      await sendReport({
+      await deliverReport({
         companyName: result.companyName,
         decisionMaker: result.decisionMaker,
         title: result.title,

@@ -9,7 +9,7 @@ import {
   saveSearchEvolution,
   getKnowledgeBase,
   EvolvedSearchParams,
-} from "@/lib/store";
+} from "@/lib/data";
 import { getBrandConfig } from "@/lib/brand";
 import { getBusinessProfile, getWatchtowerConfig, buildProductKnowledgeBlock } from "@/lib/business-profile";
 import { createConcurrencyLimiter } from "@/lib/concurrency";

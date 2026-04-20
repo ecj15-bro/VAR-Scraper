@@ -1,9 +1,9 @@
 // lib/teams.ts — Microsoft Teams Incoming Webhook sender
-
 import { VARReport } from "./email";
+import { getEnv } from "./env";
 
 export async function sendToTeams(report: VARReport): Promise<void> {
-  const webhookUrl = process.env.TEAMS_WEBHOOK_URL;
+  const webhookUrl = getEnv().teamsWebhookUrl;
   if (!webhookUrl) throw new Error("TEAMS_WEBHOOK_URL not set");
 
   // Teams Adaptive Card payload

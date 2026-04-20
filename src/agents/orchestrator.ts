@@ -5,7 +5,7 @@
 //   Watchtower → Context (pre-filter) → Detective → Context (re-score + enrich) → Salesman
 
 import { runWatchtower, ScoredLead, WatchtowerResult } from "./watchtower";
-import { EvolvedSearchParams } from "@/lib/store";
+import { EvolvedSearchParams } from "@/lib/data";
 import { runDetective, DetectiveResult } from "./detective";
 import { runSalesman, SalesmanResult, SalesmanInput } from "./salesman";
 import { createConcurrencyLimiter } from "@/lib/concurrency";

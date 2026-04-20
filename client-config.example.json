@@ -1,0 +1,24 @@
+{
+  "clientId": "cloudbox",
+  "companyName": "Cloudbox",
+  "tagline": "The world's first real-time weight-based inventory management solution",
+  "primaryColor": "#00ff88",
+  "website": "cloudbox.io",
+  "whatTheySell": "IoT smart scales and sensors that track inventory automatically by weight — no manual scanning, no barcodes, no human data entry. Integrates with existing ERP, WMS, and POS systems.",
+  "idealPartner": "IT resellers and MSPs that already serve warehouses, manufacturers, distributors, or physical goods businesses and have hardware deployment capability",
+  "targetVerticals": [
+    "Food and beverage distribution",
+    "Pharmaceutical and medical supply",
+    "Auto parts and industrial distribution",
+    "Third-party logistics (3PL)",
+    "Electronics component distribution"
+  ],
+  "avoidVerticals": [
+    "Pure software VARs with no hardware experience",
+    "Consumer IT retail",
+    "Cybersecurity-only MSPs"
+  ],
+  "cronSchedule": "0 9 * * *",
+  "watchtowerConfig": null,
+  "brandConfig": null
+}
