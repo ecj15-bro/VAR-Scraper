@@ -1,3 +1,10 @@
 import { Inngest } from "inngest";
+import { getEnv } from "./env";
 
-export const inngest = new Inngest({ id: "var-hunter" });
+const env = getEnv();
+
+export const inngest = new Inngest({
+  id: "var-hunter",
+  signingKey: env.inngestSigningSecret,
+  eventKey: env.inngestEventKey,
+});

@@ -6,7 +6,7 @@ import { saveWatchtowerConfig, saveBusinessProfile, BusinessProfile } from "@/li
 import { extractSessionId, runWithSession } from "@/lib/session";
 
 export async function POST(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const body = await req.json() as { profile: BusinessProfile; save?: boolean };
     if (!body.profile) {

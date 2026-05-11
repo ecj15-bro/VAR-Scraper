@@ -39,7 +39,7 @@ export function getEnv(): AppEnv {
     nodeEnv: (process.env.NODE_ENV as "development" | "production" | "test") ?? "development",
     teamsWebhookUrl: process.env.TEAMS_WEBHOOK_URL,
     supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
-    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY,
+    supabaseAnonKey: process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY,
     clerkPublishableKey: process.env.CLERK_PUBLISHABLE_KEY,
     clerkSecretKey: process.env.CLERK_SECRET_KEY,
     inngestEventKey: process.env.INNGEST_EVENT_KEY,

@@ -6,3 +6,6 @@ dist
 .env*
 electron
 launch.*
+.agents
+.claude
+skills-lock.json

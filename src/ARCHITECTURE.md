@@ -107,10 +107,10 @@ When adding Supabase:
 - [ ] Replace `lib/jobs.ts` with Supabase jobs table queries
 - [ ] No agent files need to change
 
-When adding Inngest:
-- [ ] Replace `runOrchestrator()` call in `lib/trigger.ts` with `inngest.send()`
-- [ ] Move orchestrator invocation to an Inngest function handler
-- [ ] No API routes need to change
+When adding Inngest: ✅ Done
+- [x] Replace `runOrchestrator()` call in `lib/trigger.ts` with `inngest.send()`
+- [x] Move orchestrator invocation to an Inngest function handler (`src/app/api/inngest/route.ts`)
+- [x] No API routes need to change
 
 When adding Clerk:
 - [ ] Replace `lib/session.ts` stub with Clerk session resolution

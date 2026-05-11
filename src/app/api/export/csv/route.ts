@@ -75,7 +75,7 @@ function reportToRow(r: ReportEntry): string {
 
 // GET /api/export/csv?format=csv (default) | ?format=sheets
 export async function GET(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const reports = await runWithSession(sessionId, () => getReports());
     if (reports.length === 0) {

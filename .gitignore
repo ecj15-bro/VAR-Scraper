@@ -33,3 +33,6 @@ dist/
 client-config.json
 .env.*
 !.env.local.example
+
+# clerk configuration (can include secrets)
+/.clerk/

@@ -6,7 +6,7 @@ import { saveBrandConfig, BrandConfig } from "@/lib/store";
 import { extractSessionId, runWithSession } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   const brand = await runWithSession(sessionId, () => getBrandConfig());
   return NextResponse.json({
     companyName: brand.companyName,
@@ -18,7 +18,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const body = await req.json() as Partial<BrandConfig>;
     const current = await runWithSession(sessionId, () => getBrandConfig());

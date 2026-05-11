@@ -668,7 +668,7 @@ async function buildPDF(report: ReportEntry): Promise<Buffer> {
 // ─── ROUTE ───────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const { id } = await req.json();
     if (!id) return NextResponse.json({ error: "Missing report id" }, { status: 400 });

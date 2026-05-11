@@ -12,7 +12,7 @@ import {
 import { extractSessionId, runWithSession } from "@/lib/session";
 
 export async function GET(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const [reports, knowledgeBase, searchEvolution, totalUniqueQueries] =
       await runWithSession(sessionId, () =>
@@ -32,7 +32,7 @@ export async function GET(req: NextRequest) {
 // DELETE /api/reports?id=<id>  — delete one report
 // DELETE /api/reports?all=true — clear all reports + seenCompanies
 export async function DELETE(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const { searchParams } = new URL(req.url);
 

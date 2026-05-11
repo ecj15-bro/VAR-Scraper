@@ -22,7 +22,11 @@
       "Bash(fly deploy *)",
       "Bash(grep -c 'from \"@/lib/store\"' src/agents/*.ts)",
       "Bash(grep -c 'from \"@/lib/email\"' src/agents/*.ts)",
-      "Bash(npx skills *)"
+      "Bash(npx skills *)",
+      "Bash(fly logs *)",
+      "Bash(curl *)",
+      "Bash(npm audit *)",
+      "Bash(git add *)"
     ]
   }
 }

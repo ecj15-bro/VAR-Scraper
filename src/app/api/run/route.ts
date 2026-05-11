@@ -6,10 +6,8 @@ import { extractSessionId } from "@/lib/session";
 import { createJob } from "@/lib/jobs";
 import { triggerPipeline } from "@/lib/trigger";
 
-export const maxDuration = 300;
-
 export async function POST(req: NextRequest) {
-  extractSessionId(req);
+  await extractSessionId(req);
   try {
     const body = await req.json().catch(() => ({}));
     const dryRun = body.dryRun === true;

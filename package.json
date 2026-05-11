@@ -52,7 +52,8 @@
     }
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.24.3",
+    "@anthropic-ai/sdk": "^0.95.2",
+    "@clerk/nextjs": "^7.3.3",
     "@supabase/ssr": "^0.10.2",
     "@supabase/supabase-js": "^2.103.3",
     "docx": "^9.6.1",
@@ -61,7 +62,7 @@
     "exceljs": "^4.4.0",
     "get-port": "^7.2.0",
     "inngest": "^4.2.4",
-    "next": "14.2.5",
+    "next": "^16.2.6",
     "pdfkit": "^0.18.0",
     "react": "^18",
     "react-dom": "^18"

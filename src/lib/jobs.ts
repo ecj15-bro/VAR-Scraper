@@ -1,11 +1,13 @@
-// lib/jobs.ts — File-based job registry at /tmp/jobs.json.
+// lib/jobs.ts — File-based job registry at os.tmpdir()/jobs.json.
 // Persists across execution contexts so Inngest and the status route
 // always read/write the same state. Synchronous fs to avoid race conditions.
 // Interface is stable — will be backed by Supabase when multi-tenant is added.
 import fs from "fs";
+import os from "os";
+import path from "path";
 import type { OrchestratorResult } from "@/agents/orchestrator";
 
-const JOBS_PATH = "/tmp/jobs.json";
+const JOBS_PATH = path.join(os.tmpdir(), "jobs.json");
 
 export type JobStatus = "pending" | "running" | "complete" | "error";
 

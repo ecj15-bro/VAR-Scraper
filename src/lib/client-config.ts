@@ -3,6 +3,8 @@
 // In production: reads from CLIENT_* prefixed environment variables.
 // All agents and the orchestrator accept an optional clientConfig parameter;
 // if omitted they call getClientConfig() here as the fallback.
+import fs from "fs";
+import path from "path";
 import type { WatchtowerConfig, BrandConfig } from "./store";
 
 export interface ClientConfig {
@@ -42,9 +44,6 @@ function fromEnv(): ClientConfig {
 
 function fromFile(): ClientConfig | null {
   try {
-    // Dynamic require so Next.js doesn't bundle the fs module on the client
-    const fs = require("fs") as typeof import("fs");
-    const path = require("path") as typeof import("path");
     const filePath = path.join(process.cwd(), "client-config.json");
     if (!fs.existsSync(filePath)) return null;
     return JSON.parse(fs.readFileSync(filePath, "utf8")) as ClientConfig;

@@ -13,7 +13,7 @@ import {
 } from "@/lib/store";
 
 export async function GET(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     const [reports, searchHistory, searchEvolution, knowledgeBase, brandConfig, businessProfile, settings] =
       await runWithSession(sessionId, () =>

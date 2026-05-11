@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const sessionId = extractSessionId(req);
+  const sessionId = await extractSessionId(req);
   try {
     console.log("📚 Manual knowledge refresh triggered from dashboard");
     const kb = await runWithSession(sessionId, () => runKnowledgeRefresh());

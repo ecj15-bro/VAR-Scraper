@@ -2,78 +2,12 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
+import { UserButton } from "@clerk/nextjs";
+import type { KnowledgeBase, EvolvedSearchParams, ReportEntry } from "@/lib/store";
 
 // ─── TYPES ───────────────────────────────────────────────────────────────────
 
-interface KnowledgeBase {
-  lastRefreshed: string;
-  cloudboxUpdates: string[];
-  industryTrends: string[];
-  competitorIntel: string[];
-  partnerEcosystem: string[];
-  varMarketSignals: string[];
-  refinedIdealVARProfile: string;
-  hotVerticals: string[];
-  coldVerticals: string[];
-  lastInsights: string;
-}
-
-interface VARFitScore {
-  overallScore: number;
-  fitCategory: "strong" | "moderate" | "weak" | "avoid";
-  fitReasons: string[];
-  redFlags: string[];
-  deploymentEase: "easy" | "moderate" | "complex";
-  estimatedDealSize: "small" | "mid" | "enterprise";
-  strategicNotes: string;
-}
-
-interface PitchContext {
-  hookAngle: string;
-  painPoints: string[];
-  integrationAngle: string | null;
-  toneRecommendation: "formal" | "casual" | "technical" | "executive";
-  avoidMentioning: string[];
-}
-
-interface PitchVariants {
-  cold_email: string;
-  linkedin_message: string;
-  followup_email: string;
-  text_message: string;
-  executive_brief: string;
-}
-
-interface Report {
-  id: string;
-  timestamp: string;
-  companyName: string;
-  decisionMaker: string;
-  title: string;
-  linkedinUrl?: string;
-  companyWebsite?: string;
-  companyProfile: string;
-  personProfile: string;
-  pitch: string;
-  newsTitle: string;
-  newsSource: string;
-  pitchVariants?: PitchVariants;
-  relevanceScore?: number;
-  confidenceScore?: number;
-  varFitScore?: VARFitScore;
-  pitchContext?: PitchContext;
-  briefing?: string;
-}
-
-interface EvolvedSearchParams {
-  retireQueries: string[];
-  addQueries: string[];
-  hotVerticalQueries: string[];
-  ecosystemQueries: string[];
-  saturatedQueries: string[];
-  evolutionRationale: string;
-}
-
+type Report = ReportEntry;
 type RunStatus = "idle" | "running" | "done" | "error";
 type ActiveView = "reports" | "intelligence";
 
@@ -431,6 +365,7 @@ export default function Dashboard() {
           >
             ⚙
           </button>
+          <UserButton />
         </div>
       </header>
 
@@ -787,7 +722,7 @@ function IntelligencePanel({
             🔬 MARKET INTELLIGENCE
           </div>
           <h2 style={{ fontSize: 24, fontWeight: 800, margin: 0, lineHeight: 1.2 }}>
-            Cloudbox VAR Market Briefing
+            {companyName} VAR Market Briefing
           </h2>
           {ageLabel && (
             <div style={{ fontSize: 12, color: "var(--muted)", marginTop: 6 }}>
