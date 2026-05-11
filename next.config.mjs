@@ -1,13 +1,9 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  webpack: (config, { isServer }) => {
-    if (isServer) {
-      // pdfkit resolves font files using relative paths from node_modules at runtime.
-      // Bundling it breaks those paths — keep it as a runtime require instead.
-      config.externals = [...(config.externals ?? []), "pdfkit"];
-    }
-    return config;
-  },
+  // pdfkit resolves font files via runtime paths — keep it out of the bundle.
+  serverExternalPackages: ["pdfkit"],
+  // Silence the webpack-vs-turbopack warning; this app has no custom webpack config.
+  turbopack: {},
   // Needed when running inside Electron (file:// protocol or localhost)
   output: "standalone",
 };
